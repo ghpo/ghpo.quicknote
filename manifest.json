@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "ghpo.quicknote",
+  "name": "Quick Note",
+  "version": "1.0.0",
+  "author": "ghpo",
+  "description": "Quick note button + dialog that saves notes to ~/Documents/QuickNotes/",
+  "kinds": [
+    "bar-widget",
+    "overlay"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "QuickNoteButton.qml",
+    "overlay": "QuickNoteFlow.qml"
+  },
+  "barWidget": {
+    "displayName": "Quick Note",
+    "description": "Button that opens the quick note dialog",
+    "category": "Notes",
+    "allowMultiple": false,
+    "defaultSection": "center",
+    "schema": [
+      {
+        "key": "icon",
+        "type": "string",
+        "label": "Icon",
+        "description": "Glyph shown on the bar button",
+        "defaultValue": "󰎚"
+      },
+      {
+        "key": "notesDir",
+        "type": "string",
+        "label": "Notes folder",
+        "description": "Where notes are saved (default: ~/Documents/QuickNotes)",
+        "defaultValue": "~/Documents/QuickNotes"
+      }
+    ]
+  }
+}
