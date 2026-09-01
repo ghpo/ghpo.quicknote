@@ -5,10 +5,12 @@ dialog for a fast note; pressing Enter (or Salvar) saves it to
 `~/Documents/QuickNotes/` as a timestamped markdown file. Esc (or Fechar)
 discards.
 
+![Preview](preview.png)
+
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/YOUR_USER/ghpo.quicknote.git --enable
+omarchy plugin add https://github.com/ghpo/ghpo.quicknote.git --enable
 ```
 
 or, from a local checkout:
@@ -57,6 +59,12 @@ Example:
 - `QuickNoteButton.qml` — the bar button
 - `QuickNoteFlow.qml` — the note dialog overlay
 - `save-note.sh` — saves the note (shipped inside the plugin)
+- `LICENSE` — MIT
+- `preview.png` — marketplace preview image
 
 The button summons the dialog through `omarchy-shell shell summon
 ghpo.quicknote`, passing the configured `notesDir` in the payload.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
