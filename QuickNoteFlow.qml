@@ -94,6 +94,7 @@ Item {
 
   function dismiss() {
     root.opened = false
+    if (root.helpOpen) root.closeHelp()
     if (root.shell && typeof root.shell.hide === "function")
       root.shell.hide((root.manifest && root.manifest.id) || "ghpo.quicknote")
   }
@@ -268,10 +269,25 @@ Item {
 
   function openHelp() {
     root.helpOpen = true
+    root.startMusic()
   }
 
   function closeHelp() {
     root.helpOpen = false
+    root.stopMusic()
+  }
+
+  // Embedded MIDI (Darude - Sandstorm) synthesized via timidity. Starts when
+  // the help overlay opens and stops when it closes.
+  function startMusic() {
+    if (musicProc.running) musicProc.running = false
+    musicProc.command = [root.sourceDir + "/play-music.sh"]
+    musicProc.running = true
+  }
+
+  function stopMusic() {
+    // play-music.sh execs timidity, so the tracked child IS the player.
+    musicProc.running = false
   }
 
   // Unified modal key routing: help first, then the delete confirm.
@@ -428,6 +444,12 @@ Item {
         copyProc.payload = undefined
       }
     }
+  }
+
+  // Help-overlay background music (play-music.sh -> timidity).
+  Process {
+    id: musicProc
+    command: []
   }
 
   Timer {

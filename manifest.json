@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ghpo.quicknote",
   "name": "Quick Notes",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "author": "ghpo",
   "description": "Quick note button + dialog that saves notes to ~/Documents/QuickNotes/, with recent-notes list, search, #tags, delete with confirmation and an in-dialog help guide",
   "kinds": [
@@ -26,7 +26,7 @@
         "type": "string",
         "label": "Icon",
         "description": "Glyph shown on the bar button",
-        "defaultValue": "󰎚"
+        "defaultValue": "\udb80\udf9a"
       },
       {
         "key": "notesDir",

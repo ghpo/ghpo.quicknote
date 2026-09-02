@@ -76,7 +76,8 @@ omarchy plugin enable ghpo.quicknote --section center --after omarchy.clock
   list to filter by it. `Esc` in the search box clears it.
 
 - The `?` button in the bottom bar opens an in-dialog help overlay explaining
-  the shortcuts and how `#tag` categorization works.
+  the shortcuts and how `#tag` categorization works, with an embedded MIDI
+  (Darude - Sandstorm) synthesized and played via timidity while it is open.
 
 ## Settings
 
