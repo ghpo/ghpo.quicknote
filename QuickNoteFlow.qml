@@ -70,7 +70,9 @@ Item {
   }
 
   function scriptCommand(args) {
-    return [root.quicknoteScript, "--dir", root.notesDir].concat(args)
+    // setsid puts the helper in its own session/process group so a watchdog
+    // TERM/KILL on it never bleeds into the shell's own process group.
+    return ["setsid", root.quicknoteScript, "--dir", root.notesDir].concat(args)
   }
 
   function open(payloadJson) {

@@ -35,8 +35,14 @@ if [[ -z $DIR || ${#DIR} -gt 1024 ]]; then
   echo "invalid notes dir" >&2
   exit 2
 fi
+# Resolve an existing dir, then require it to be a real directory (no symlink)
+# owned by the current user.
 mkdir -p "$DIR" 2>/dev/null || exit 2
-case "$(stat -Lc '%u' "$DIR" 2>/dev/null || echo -1)" in
+if ! [[ -d $DIR && ! -L $DIR ]]; then
+  echo "notes dir is not a real directory" >&2
+  exit 2
+fi
+case "$(stat -c '%u' "$DIR" 2>/dev/null || echo -1)" in
   "$UID_NOW") ;;
   *) echo "notes dir not owned" >&2; exit 2 ;;
 esac
@@ -102,8 +108,8 @@ enumerate_notes() {
     | head -z -n "$MAX_FILES"
 }
 
-# Sort the capped path list by mtime, newest first. Paths are carried as
-# $'\t'-separated records so a pathname cannot inject extra fields.
+# Sort a NUL-delimited path stream by mtime, newest first. The whole pipeline
+# stays NUL-delimited so pathnames with tabs/newlines cannot corrupt it.
 sort_by_mtime() {
   local -a recs=()
   local f
@@ -111,9 +117,22 @@ sort_by_mtime() {
     [[ -n $f ]] || continue
     recs+=("$(stat -c '%Y' "$f" 2>/dev/null || echo 0)"$'\t'"$f")
   done
-  local IFS=$'\n'
-  mapfile -t recs < <(printf '%s\n' "${recs[@]}" | sort -rn | cut -f2- )
-  printf '%s\0' "${recs[@]}"
+  printf '%s\0' "${recs[@]}" \
+    | sort -z -k1,1rn -t $'\t' \
+    | cut -z -f2-
+}
+
+# Read up to $1 NUL-delimited paths, newest first.
+sorted_notes() {
+  local limit="${1:-50}"
+  [[ $limit =~ ^[0-9]+$ ]] || limit=50
+  (( limit > MAX_FILES )) && limit=$MAX_FILES
+  local count=0
+  while IFS= read -r -d '' f; do
+    [[ -n $f ]] || continue
+    printf '%s\0' "$f"
+    (( ++count >= limit )) && break
+  done < <(enumerate_notes | sort_by_mtime)
 }
 
 list_notes() {
@@ -121,17 +140,12 @@ list_notes() {
   [[ $limit =~ ^[0-9]+$ ]] || limit=50
   (( limit > MAX_FILES )) && limit=$MAX_FILES
 
-  local -a files=()
+  local i
   while IFS= read -r -d '' f; do
     [[ -n $f ]] || continue
-    files+=("$f")
-    (( ${#files[@]} >= MAX_FILES )) && break
-  done < <(enumerate_notes)
-
-  local i
-  for i in "${files[@]}"; do
-    emit_note "$i"
-  done | jq -cs . 2>/dev/null | head -c "$MAX_OUTPUT_BYTES" || true
+    emit_note "$f"
+  done < <(sorted_notes "$limit") \
+    | jq -cs . 2>/dev/null | head -c "$MAX_OUTPUT_BYTES" || true
 }
 
 search_notes() {
@@ -170,18 +184,14 @@ search_notes() {
     fi
   done
 
-  local -a sorted=()
-  local f2
-  for f2 in "${out[@]}"; do
-    sorted+=("$(stat -c '%Y' "$f2" 2>/dev/null || echo 0)"$'\t'"$f2")
-  done
-  local IFS=$'\n'
-  mapfile -t sorted < <(printf '%s\n' "${sorted[@]}" | sort -rn | cut -f2- | head -n "$limit")
-
+  # Keep NUL-safe: feed matches back through the sorted/limited stream.
   local k
-  for k in "${sorted[@]}"; do
-    emit_note "$k"
-  done | jq -cs . 2>/dev/null | head -c "$MAX_OUTPUT_BYTES" || true
+  printf '%s\0' "${out[@]}" | sort_by_mtime | head -z -n "$limit" \
+    | while IFS= read -r -d '' k; do
+        [[ -n $k ]] || continue
+        emit_note "$k"
+      done \
+    | jq -cs . 2>/dev/null | head -c "$MAX_OUTPUT_BYTES" || true
 }
 
 save_note() {
@@ -206,18 +216,30 @@ save_note() {
   fi
 
   if [[ -n $target_file ]]; then
-    local target
+    # Edit: write an adjacent 0600 temp and atomically rename over the target
+    # (never truncate in place).
+    local target base tmp
     target=$(resolve_target "$target_file") || { echo "refusing edit outside notes dir" >&2; exit 1; }
     is_safe_file "$target" || exit 1
-    printf '%s\n' "$note" > "$target"
+    base=$(dirname "$target")
+    tmp=$(mktemp "$base/.qn-edit-XXXXXX.md") || exit 1
+    printf '%s\n' "$note" > "$tmp"
+    chmod 600 "$tmp" 2>/dev/null || true
+    mv -f -- "$tmp" "$target" || { rm -f -- "$tmp"; exit 1; }
   else
-    local stamp path
+    # New note: exclusive 0600 creation in the notes dir, then an atomic
+    # rename to a timestamped name (never a predictable non-exclusive write).
+    local stamp tmp final i
     stamp=$(date +%Y-%m-%d_%H-%M-%S)
-    path="$DIR/$stamp-$$-$RANDOM.md"
-    umask 077
-    : > "$path" 2>/dev/null || exit 1
-    printf '%s\n' "$note" > "$path"
-    chmod 600 "$path" 2>/dev/null || true
+    tmp=$(mktemp "$DIR/.qn-new-XXXXXX.md") || exit 1
+    printf '%s\n' "$note" > "$tmp"
+    chmod 600 "$tmp" 2>/dev/null || true
+    final="$DIR/$stamp.md"
+    i=0
+    while [[ -e $final ]]; do
+      final="$DIR/$stamp-$((++i)).md"
+    done
+    mv -f -- "$tmp" "$final" || { rm -f -- "$tmp"; exit 1; }
   fi
 }
 
