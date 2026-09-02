@@ -860,6 +860,8 @@ Item {
 
                   background: Rectangle { color: "transparent" }
 
+                  background: Rectangle { color: "transparent" }
+
                   onTextChanged: root.note = noteEditor.text
 
                 Keys.priority: Keys.BeforeItem
@@ -882,6 +884,24 @@ Item {
                       event.accepted = true
                     }
                   }
+                }
+
+                // Manual placeholder: the QQC placeholder is broken by the
+                // transparent-background override, so render it ourselves.
+                Text {
+                  id: editorPlaceholder
+                  anchors.fill: noteEditor
+                  anchors.leftMargin: noteEditor.leftPadding
+                  anchors.topMargin: noteEditor.topPadding
+                  anchors.rightMargin: noteEditor.rightPadding
+                  anchors.bottomMargin: noteEditor.bottomPadding
+                  text: "Type your note...  (Enter saves, Shift+Enter new line)"
+                  color: Qt.darker(root.foreground, 1.4)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  wrapMode: Text.WordWrap
+                  visible: root.note.trim() === ""
+                  z: 2
                 }
 
                 NeonBorder {
