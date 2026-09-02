@@ -18,6 +18,17 @@ if [[ -z $(git symbolic-ref -q HEAD 2>/dev/null) ]]; then
   git checkout -q -b "$BR" 2>/dev/null || git branch -q -M "$BR"
 fi
 
+# The seal (salt + verify blob) stays local and out of the repo on purpose:
+# an attacker with the clone would otherwise get salt+ciphertext for an
+# offline password attack. Back it up with the Seal button instead.
+if [[ -f .gitignore ]]; then
+  if ! grep -q '^\.quicknote-seal$' .gitignore 2>/dev/null; then
+    printf '\n.quicknote-seal\n' >> .gitignore
+  fi
+else
+  printf '.quicknote-seal\n' > .gitignore
+fi
+
 if [[ -n $REMOTE ]]; then
   if ! git remote get-url origin >/dev/null 2>&1; then
     git remote add origin "$REMOTE" 2>/dev/null || true
