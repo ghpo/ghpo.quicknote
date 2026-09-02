@@ -47,6 +47,9 @@ Item {
   property int cryptoReqSeq: 0
   property bool passwordOpen: false
   property string passwordError: ""
+  property bool changeOpen: false
+  property string changeError: ""
+  property bool changeBusy: false
 
   property color background: Color.menu.background
   property color foreground: Color.menu.text
@@ -170,6 +173,47 @@ Item {
     root.cryptoUnlocked = false
     root.cryptoSend({ op: "unlock", password: pw }, function(res) {
       if (res.ok) root.reloadNotes()
+    })
+  }
+
+  function openChangePass() {
+    root.changeError = ""
+    root.changeOpen = true
+    Qt.callLater(function() { chgOldField.forceActiveFocus() })
+  }
+
+  function closeChangePass() {
+    if (root.changeBusy) return
+    chgOldField.text = ""
+    chgNewField.text = ""
+    chgConfirmField.text = ""
+    root.changeOpen = false
+    root.changeError = ""
+  }
+
+  function submitChangePass() {
+    if (root.changeBusy) return
+    var o = chgOldField.text
+    var n = chgNewField.text
+    var c = chgConfirmField.text
+    if (!o) { root.changeError = "Type your current password"; return }
+    if (n.length < 6) { root.changeError = "New password must have at least 6 characters"; return }
+    if (n !== c) { root.changeError = "New passwords do not match"; return }
+    chgOldField.text = ""
+    chgNewField.text = ""
+    chgConfirmField.text = ""
+    root.changeError = ""
+    root.changeBusy = true
+    root.cryptoSend({ op: "changepass", old: o, new: n }, function(res) {
+      root.changeBusy = false
+      if (res.ok) {
+        root.changeOpen = false
+        Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+          "Password changed", "All notes were re-encrypted"])
+        if (root.gitRemote !== "") root.gitSync()
+      } else {
+        root.changeError = res.error || "Failed to change password"
+      }
     })
   }
 
@@ -1084,6 +1128,14 @@ Item {
         }
 
         Button {
+          text: "Pass"
+          fontFamily: root.fontFamily
+          visible: root.cryptoEnabled && root.cryptoUnlocked
+          tooltipText: "Change the password (re-encrypts every note)"
+          onClicked: root.openChangePass()
+        }
+
+        Button {
           text: "Seal"
           fontFamily: root.fontFamily
           visible: root.cryptoEnabled
@@ -1334,6 +1386,144 @@ Item {
                   fontFamily: root.fontFamily
                   active: true
                   onClicked: root.submitPassword()
+                }
+              }
+            }
+          }
+        }
+
+        Item {
+          id: changeModal
+          anchors.fill: parent
+          z: 70
+          visible: root.changeOpen
+
+          Rectangle {
+            anchors.fill: parent
+            color: Qt.rgba(0, 0, 0, 0.55)
+            MouseArea { anchors.fill: parent; onClicked: {} }
+          }
+
+          BorderSurface {
+            id: chgCard
+            width: Math.min(parent.width - Style.space(48), Style.space(420))
+            height: chgCard.contentTopInset + chgCard.contentBottomInset + chgCol.implicitHeight + Style.space(28)
+            anchors.centerIn: parent
+            color: root.background
+            borderSpec: Border.flat(root.neonColor, Style.normalBorderWidth)
+            padding: Style.space(18)
+            radius: root.cornerRadius
+
+            MouseArea { anchors.fill: parent; onClicked: {} }
+
+            ColumnLayout {
+              id: chgCol
+              anchors.fill: parent
+              anchors.topMargin: chgCard.contentTopInset
+              anchors.rightMargin: chgCard.contentRightInset
+              anchors.bottomMargin: chgCard.contentBottomInset
+              anchors.leftMargin: chgCard.contentLeftInset
+              spacing: Style.spacing.sm
+
+              Text {
+                Layout.fillWidth: true
+                text: "Change password"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.heading
+                font.bold: true
+              }
+
+              Text {
+                Layout.fillWidth: true
+                text: "Every note is decrypted and re-encrypted with a new key derived from the new password. The current key is only needed to unlock first."
+                color: Qt.darker(root.foreground, 1.3)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                wrapMode: Text.WordWrap
+              }
+
+              TextField {
+                id: chgOldField
+                Layout.fillWidth: true
+                Layout.topMargin: Style.spacing.sm
+                password: true
+                placeholderText: "Current password"
+                foreground: root.foreground
+                accent: Color.accent
+                onAccepted: chgNewField.forceActiveFocus()
+
+                Keys.priority: Keys.BeforeItem
+                Keys.onPressed: function(event) {
+                  if (event.key === Qt.Key_Escape) {
+                    root.closeChangePass()
+                    event.accepted = true
+                  }
+                }
+              }
+
+              TextField {
+                id: chgNewField
+                Layout.fillWidth: true
+                password: true
+                placeholderText: "New password (at least 6 characters)"
+                foreground: root.foreground
+                accent: Color.accent
+                onAccepted: chgConfirmField.forceActiveFocus()
+
+                Keys.priority: Keys.BeforeItem
+                Keys.onPressed: function(event) {
+                  if (event.key === Qt.Key_Escape) {
+                    root.closeChangePass()
+                    event.accepted = true
+                  }
+                }
+              }
+
+              TextField {
+                id: chgConfirmField
+                Layout.fillWidth: true
+                password: true
+                placeholderText: "Repeat the new password"
+                foreground: root.foreground
+                accent: Color.accent
+                onAccepted: root.submitChangePass()
+
+                Keys.priority: Keys.BeforeItem
+                Keys.onPressed: function(event) {
+                  if (event.key === Qt.Key_Escape) {
+                    root.closeChangePass()
+                    event.accepted = true
+                  }
+                }
+              }
+
+              Text {
+                Layout.fillWidth: true
+                visible: root.changeError !== ""
+                text: root.changeError
+                color: Color.urgent
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+              }
+
+              RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Style.spacing.sm
+                Item { Layout.fillWidth: true }
+                Button {
+                  text: "Cancel"
+                  fontFamily: root.fontFamily
+                  enabled: !root.changeBusy
+                  onClicked: root.closeChangePass()
+                }
+                Button {
+                  text: "Apply"
+                  fontFamily: root.fontFamily
+                  active: true
+                  enabled: !root.changeBusy
+                  onClicked: root.submitChangePass()
                 }
               }
             }

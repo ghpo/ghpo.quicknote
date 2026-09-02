@@ -697,6 +697,182 @@ static void cmd_lock(void) {
     resp_end();
 }
 
+/* ---------------------------------------------------------- change password */
+
+static int keys_equal(const unsigned char *a, const unsigned char *b) {
+    return sodium_memcmp(a, b, crypto_secretbox_KEYBYTES) == 0;
+}
+
+/* Re-encrypt every .md note from the current global key to `newkey`. Two
+ * phase: build every new blob under a temp name first; only when all rewrote
+ * cleanly do we rename them over the originals, so a failure leaves the notes
+ * directory untouched. Returns 0 or -1. */
+static int reencrypt_all(const unsigned char *newkey) {
+    int dfd = open_notes_dir();
+    if (dfd < 0) return -1;
+    DIR *d = fdopendir(dup(dfd));
+    if (!d) { close(dfd); return -1; }
+    char *names[MAX_FILES];
+    char tmps[MAX_FILES][64];
+    int n = 0;
+    struct dirent *de;
+    while ((de = readdir(d)) && n < MAX_FILES) {
+        if (de->d_name[0] == '.' || !is_md(de->d_name)) continue;
+        names[n] = xstrdup(de->d_name);
+        n++;
+    }
+    closedir(d);
+
+    int ok = 1;
+    for (int i = 0; i < n && ok; i++) {
+        const char *name = names[i];
+        int fd = open_leaf(dfd, name, O_RDONLY);
+        if (fd < 0) { ok = 0; break; }
+        struct stat st;
+        if (fstat(fd, &st) < 0) { close(fd); ok = 0; break; }
+        size_t fsz = (size_t)st.st_size;
+        if (fsz < crypto_secretbox_NONCEBYTES + crypto_secretbox_MACBYTES + 1
+            || fsz > MAX_NOTE_BYTES + crypto_secretbox_NONCEBYTES + crypto_secretbox_MACBYTES + 64) {
+            close(fd); ok = 0; break;
+        }
+        unsigned char *blob = malloc(fsz);
+        if (!blob) { close(fd); ok = 0; break; }
+        size_t got = 0;
+        while (got < fsz) { ssize_t r = read(fd, blob + got, fsz - got); if (r <= 0) break; got += r; }
+        close(fd);
+        if (got != fsz) { free(blob); ok = 0; break; }
+
+        /* decrypt with the old key (still in `key`) */
+        unsigned char *ct = blob + crypto_secretbox_NONCEBYTES;
+        size_t ct_len = fsz - crypto_secretbox_NONCEBYTES;
+        unsigned char *pt = malloc(ct_len - crypto_secretbox_MACBYTES);
+        if (!pt) { free(blob); ok = 0; break; }
+        if (crypto_secretbox_open_easy(pt, ct, ct_len, blob, key) != 0) {
+            free(blob); free(pt); ok = 0; break;
+        }
+        size_t plen = ct_len - crypto_secretbox_MACBYTES;
+
+        /* encrypt with the new key under a fresh nonce */
+        unsigned char nnonce[crypto_secretbox_NONCEBYTES];
+        randombytes_buf(nnonce, sizeof nnonce);
+        size_t ncap = crypto_secretbox_NONCEBYTES + plen + crypto_secretbox_MACBYTES;
+        unsigned char *nb = malloc(ncap);
+        if (!nb) { free(blob); free(pt); ok = 0; break; }
+        memcpy(nb, nnonce, sizeof nnonce);
+        if (crypto_secretbox_easy(nb + crypto_secretbox_NONCEBYTES, pt, plen, nnonce, newkey) != 0) {
+            free(blob); free(pt); free(nb); ok = 0; break;
+        }
+        int tfd = create_excl(dfd, ".qn-re-", tmps[i], sizeof tmps[i]);
+        if (tfd < 0) { free(blob); free(pt); free(nb); ok = 0; break; }
+        size_t w = 0;
+        while (w < ncap) { ssize_t r = write(tfd, nb + w, ncap - w); if (r <= 0) break; w += r; }
+        fsync(tfd);
+        close(tfd);
+        if (w != ncap) { unlinkat(dfd, tmps[i], 0); free(blob); free(pt); free(nb); ok = 0; break; }
+        free(blob); free(pt); free(nb);
+    }
+
+    if (!ok) {
+        for (int i = 0; i < n; i++) { free(names[i]); unlinkat(dfd, tmps[i], 0); }
+        close(dfd);
+        return -1;
+    }
+
+    for (int i = 0; i < n; i++) {
+        if (renameat(dfd, tmps[i], dfd, names[i]) < 0) { ok = 0; break; }
+    }
+    if (!ok) {
+        for (int i = 0; i < n; i++) { free(names[i]); unlinkat(dfd, tmps[i], 0); }
+        close(dfd);
+        return -1;
+    }
+    fsync(dfd);
+    for (int i = 0; i < n; i++) free(names[i]);
+    close(dfd);
+    return 0;
+}
+
+static int changepass_impl(const char *oldpass, size_t olen,
+                           const char *newpass, size_t nlen) {
+    if (nlen == 0) return -8;
+    char path[4096];
+    seal_path(path, sizeof path);
+
+    /* current salt + verify current password */
+    unsigned char salt[crypto_pwhash_SALTBYTES];
+    FILE *sf = fopen(path, "rb");
+    if (!sf) return -3;
+    if (fread(salt, 1, sizeof salt, sf) != sizeof salt) { fclose(sf); return -4; }
+    fclose(sf);
+
+    unsigned char oldk[crypto_secretbox_KEYBYTES];
+    if (crypto_pwhash(oldk, sizeof oldk, oldpass, olen, salt,
+                      crypto_pwhash_OPSLIMIT_INTERACTIVE,
+                      crypto_pwhash_MEMLIMIT_INTERACTIVE,
+                      crypto_pwhash_ALG_ARGON2ID13) != 0) {
+        sodium_memzero(oldk, sizeof oldk);
+        return -5;
+    }
+    if (!keys_equal(oldk, key)) { sodium_memzero(oldk, sizeof oldk); return -1; }
+    sodium_memzero(oldk, sizeof oldk);
+
+    /* new salt + new key */
+    unsigned char nsalt[crypto_pwhash_SALTBYTES];
+    randombytes_buf(nsalt, sizeof nsalt);
+    unsigned char newk[crypto_secretbox_KEYBYTES];
+    if (crypto_pwhash(newk, sizeof newk, newpass, nlen, nsalt,
+                      crypto_pwhash_OPSLIMIT_INTERACTIVE,
+                      crypto_pwhash_MEMLIMIT_INTERACTIVE,
+                      crypto_pwhash_ALG_ARGON2ID13) != 0) {
+        sodium_memzero(newk, sizeof newk);
+        return -5;
+    }
+
+    /* re-encrypt every note with the new key (old key still in `key`) */
+    if (reencrypt_all(newk) != 0) { sodium_memzero(newk, sizeof newk); return -6; }
+
+    /* commit: rewrite the seal under the new salt/key, then swap the key */
+    unsigned char nonce[crypto_secretbox_NONCEBYTES];
+    unsigned char sct[crypto_secretbox_MACBYTES + sizeof(VERIFY_MSG)];
+    randombytes_buf(nonce, sizeof nonce);
+    if (crypto_secretbox_easy(sct, (const unsigned char *)VERIFY_MSG,
+                              sizeof(VERIFY_MSG), nonce, newk) != 0) {
+        sodium_memzero(newk, sizeof newk);
+        return -5;
+    }
+    int dfd = open(dir_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (dfd < 0) { sodium_memzero(newk, sizeof newk); return -7; }
+    int fd = openat(dfd, SEAL_NAME, O_CREAT | O_TRUNC | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (fd < 0) { close(dfd); sodium_memzero(newk, sizeof newk); return -7; }
+    write(fd, nsalt, sizeof nsalt);
+    write(fd, nonce, sizeof nonce);
+    write(fd, sct, sizeof sct);
+    fsync(fd);
+    close(fd);
+    fsync(dfd);
+    close(dfd);
+
+    sodium_memzero(key, sizeof key);
+    memcpy(key, newk, sizeof key);
+    sodium_memzero(newk, sizeof newk);
+    return 0;
+}
+
+static void cmd_changepass(const char *oldpass, size_t olen,
+                           const char *newpass, size_t nlen) {
+    if (plain) { resp_error("plain mode: no password set"); return; }
+    int r = changepass_impl(oldpass, olen, newpass, nlen);
+    switch (r) {
+        case 0: resp_begin_ok(); resp_end(); break;
+        case -1: resp_error("wrong current password"); break;
+        case -3: resp_error("no seal found (no password set?)"); break;
+        case -4: resp_error("seal is corrupt"); break;
+        case -6: resp_error("re-encryption failed (unreadable note?)"); break;
+        case -8: resp_error("new password is empty"); break;
+        default: resp_error("password change failed"); break;
+    }
+}
+
 /* -------------------------------------------------------------------- main */
 
 int main(int argc, char **argv) {
@@ -795,6 +971,18 @@ int main(int argc, char **argv) {
             char *c = json_field_str(req, "content", &cn);
             if (!c) resp_error("missing content");
             else { cmd_copy(c); sodium_memzero(c, cn); free(c); }
+        } else if (strcmp(op, "changepass") == 0) {
+            size_t olen, nlen;
+            char *oldp = json_field_str(req, "old", &olen);
+            char *newp = json_field_str(req, "new", &nlen);
+            if (!oldp || !newp) { resp_error("missing old/new password"); }
+            else {
+                cmd_changepass(oldp, olen, newp, nlen);
+                sodium_memzero(oldp, olen);
+                free(oldp);
+                sodium_memzero(newp, nlen);
+                free(newp);
+            }
         } else {
             resp_error("unknown op");
         }
