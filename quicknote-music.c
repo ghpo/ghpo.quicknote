@@ -109,6 +109,7 @@ static int cmp_ev(const void *a, const void *b) {
 typedef struct {
     int active;
     int program, note, drum;
+    int kmax;
     double phase;
     double freq;
     double vel;
@@ -122,16 +123,36 @@ static int programs[16];
 
 static double note_freq(int n) { return 440.0 * pow(2.0, (n - 69) / 12.0); }
 
-static double wave(int program, double phase) {
+/* Band-limited waveforms: sum harmonics only up to the highest that fits
+ * below Nyquist (kmax), so nothing aliases and the sound stays clean. */
+static double wave(int program, double phase, int kmax) {
     double ph = phase - floor(phase);
-    if (program >= 0 && program < 8)      return sin(2.0 * M_PI * ph);
-    if (program >= 16 && program < 24)    return (ph < 0.5 ? 1.0 : -1.0) * 0.6;
-    if (program >= 24 && program < 40)    return (2.0 * ph - 1.0) * 0.8;
-    if (program >= 40 && program < 56)    return (ph < 0.5 ? 1.0 : -1.0) * 0.7;
-    if (program >= 80 && program < 96)    return (ph < 0.25 ? 1.0 : -1.0) * 0.7;
-    if (program >= 96 && program < 112)   return sin(2.0 * M_PI * ph) * 0.8;
-    if (program >= 112)                   return ((rand() & 0xffff) / 32768.0 - 0.5) * 2.0;
-    return (ph < 0.5 ? 1.0 : -1.0) * 0.6;
+    double sum = 0;
+    if (program >= 96 && program < 112) return sin(2.0 * M_PI * ph) * 0.9;      /* pad: sine */
+    if (program >= 112) return ((rand() & 0xffff) / 32768.0 - 0.5) * 2.0;       /* fx: noise */
+    if (program >= 0 && program < 8) {          /* piano: triangle-ish (k^-2) */
+        for (int k = 1; k <= kmax; k += 2) {
+            int s = (((k - 1) / 2) & 1) ? -1 : 1;
+            sum += s * sin(2 * M_PI * k * ph) / (k * k);
+        }
+        return (8.0 / (M_PI * M_PI)) * sum;
+    }
+    if (program >= 80 && program < 96) {        /* synth lead: pulse 25% duty */
+        for (int k = 1; k <= kmax; k++)
+            sum += sin(M_PI * k * 0.5) * sin(2 * M_PI * k * ph) / k;
+        return (2.0 / M_PI) * sum;
+    }
+    if (program >= 24 && program < 40) {        /* bass/guitar: saw */
+        for (int k = 1; k <= kmax; k++) {
+            int s = (k & 1) ? 1 : -1;
+            sum += s * sin(2 * M_PI * k * ph) / k;
+        }
+        return (2.0 / M_PI) * sum;
+    }
+    for (int k = 1; k <= kmax; k += 2) {        /* organ/strings/default: square */
+        sum += sin(2 * M_PI * k * ph) / k;
+    }
+    return (4.0 / M_PI) * sum;
 }
 
 static void env_step(Voice *v, double dt) {
@@ -148,7 +169,7 @@ static void env_step(Voice *v, double dt) {
 static double lpf_z1 = 0, lpf_z2 = 0;
 static double lpf_b0, lpf_b1, lpf_b2, lpf_a1, lpf_a2;
 static void lpf_init(void) {
-    double fc = 7500.0, Q = 0.7071, w0 = 2.0 * M_PI * fc / SR;
+    double fc = 6000.0, Q = 0.7071, w0 = 2.0 * M_PI * fc / SR;
     double alpha = sin(w0) / (2.0 * Q);
     double a0 = 1.0 + alpha;
     lpf_b0 = (1.0 - cos(w0)) / 2.0 / a0;
@@ -164,23 +185,24 @@ static double lpf_run(double x) {
     return y;
 }
 
+static double noise_lp = 0;   /* shared one-pole to darken drum noise */
+
 static double render_sample(void) {
     double out = 0;
     for (int i = 0; i < MAX_VOICES; i++) {
         Voice *v = &voices[i];
         if (!v->active) continue;
-        double w = wave(v->program, v->phase);
+        double w = wave(v->program, v->phase, v->kmax);
         if (v->drum) {
             if (v->note <= 36) {
                 v->freq *= (1.0 - 22.0 / SR);
                 if (v->freq < 40) v->freq = 40;
                 w = (v->phase < 0.5 ? 1.0 : -1.0) * 0.9;
-            } else if (v->note >= 38 && v->note <= 40) {
-                w = ((rand() & 0xffff) / 32768.0 - 0.5) * 2.0 * 0.5;
-            } else if (v->note >= 42 && v->note <= 46) {
-                w = ((rand() & 0xffff) / 32768.0 - 0.5) * 2.0 * 0.4;
             } else {
-                w = (v->phase < 0.5 ? 1.0 : -1.0) * 0.8;
+                double n = ((rand() & 0xffff) / 32768.0 - 0.5) * 2.0;
+                double a = (v->note >= 42 && v->note <= 46) ? 0.35 : 0.20;  /* hats brighter, snare darker */
+                noise_lp += a * (n - noise_lp);
+                w = noise_lp * 0.55;
             }
         }
         v->phase += v->freq / SR;
@@ -296,6 +318,9 @@ int main(int argc, char **argv) {
                     v->note = e->note;
                     v->drum = (e->ch == 9);
                     v->freq = v->drum ? 90.0 : note_freq(e->note);
+                    v->kmax = v->drum ? 24 : (int)((SR / 2.0) / (v->freq > 0 ? v->freq : 440.0));
+                    if (v->kmax < 1) v->kmax = 1;
+                    if (v->kmax > 24) v->kmax = 24;
                     v->phase = 0;
                     v->vel = e->vel / 127.0;
                     v->env = 0;
@@ -315,8 +340,8 @@ int main(int argc, char **argv) {
 
         /* render block */
         for (int i = 0; i < BLOCK; i++) {
-            double s = lpf_run(render_sample());
-            int16_t v = (int16_t)(s * 12000.0);
+            double s = tanh(lpf_run(render_sample()));   /* soft-clip, no harsh peaks */
+            int16_t v = (int16_t)(s * 16000.0);
             if (v > 32767) v = 32767; if (v < -32768) v = -32768;
             buf[i * CHANNELS] = v;
             buf[i * CHANNELS + 1] = v;
