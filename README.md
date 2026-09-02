@@ -104,6 +104,26 @@ Example:
 }
 ```
 
+### Where the config lives and how to apply changes
+
+- The config file is `~/.config/omarchy/shell.json`. The Quick Notes entry is
+  the object with `"id": "ghpo.quicknote"` under `bar.layout.center` (or the
+  section where you placed the widget).
+- The plugin's own files (QML, helpers) are in
+  `~/.config/omarchy/plugins/ghpo.quicknote/` — you normally never edit those.
+- After editing `shell.json` **by hand**, reload the shell so the new values
+  are picked up:
+
+  ```bash
+  omarchy-restart-shell
+  ```
+
+  The shell reads `shell.json` at startup and injects those settings into the
+  bar button (icon, notes dir, encryption, remote).
+- Changes made from inside the app — the **Save remote** button in the Sync
+  window — are persisted to `shell.json` automatically and apply to the
+  current session right away; a shell restart is only needed for manual edits.
+
 ## Usage
 
 ### Opening
