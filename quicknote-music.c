@@ -144,6 +144,26 @@ static void env_step(Voice *v, double dt) {
     }
 }
 
+/* 2nd-order low-pass (RBJ), fc ~7.5 kHz, applied to the mix to kill aliasing hiss */
+static double lpf_z1 = 0, lpf_z2 = 0;
+static double lpf_b0, lpf_b1, lpf_b2, lpf_a1, lpf_a2;
+static void lpf_init(void) {
+    double fc = 7500.0, Q = 0.7071, w0 = 2.0 * M_PI * fc / SR;
+    double alpha = sin(w0) / (2.0 * Q);
+    double a0 = 1.0 + alpha;
+    lpf_b0 = (1.0 - cos(w0)) / 2.0 / a0;
+    lpf_b1 = (1.0 - cos(w0)) / a0;
+    lpf_b2 = (1.0 - cos(w0)) / 2.0 / a0;
+    lpf_a1 = -2.0 * cos(w0) / a0;
+    lpf_a2 = (1.0 - alpha) / a0;
+}
+static double lpf_run(double x) {
+    double y = lpf_b0 * x + lpf_z1;
+    lpf_z1 = lpf_b1 * x - lpf_a1 * y + lpf_z2;
+    lpf_z2 = lpf_b2 * x - lpf_a2 * y;
+    return y;
+}
+
 static double render_sample(void) {
     double out = 0;
     for (int i = 0; i < MAX_VOICES; i++) {
@@ -156,9 +176,9 @@ static double render_sample(void) {
                 if (v->freq < 40) v->freq = 40;
                 w = (v->phase < 0.5 ? 1.0 : -1.0) * 0.9;
             } else if (v->note >= 38 && v->note <= 40) {
-                w = ((rand() & 0xffff) / 32768.0 - 0.5) * 2.0 * 0.8;
+                w = ((rand() & 0xffff) / 32768.0 - 0.5) * 2.0 * 0.5;
             } else if (v->note >= 42 && v->note <= 46) {
-                w = ((rand() & 0xffff) / 32768.0 - 0.5) * 2.0 * 0.6;
+                w = ((rand() & 0xffff) / 32768.0 - 0.5) * 2.0 * 0.4;
             } else {
                 w = (v->phase < 0.5 ? 1.0 : -1.0) * 0.8;
             }
@@ -217,6 +237,7 @@ int main(int argc, char **argv) {
     }
 
     for (int i = 0; i < 16; i++) programs[i] = 0;
+    lpf_init();
 
     snd_pcm_t *pcm = NULL;
     FILE *wf = NULL;
@@ -294,7 +315,7 @@ int main(int argc, char **argv) {
 
         /* render block */
         for (int i = 0; i < BLOCK; i++) {
-            double s = render_sample();
+            double s = lpf_run(render_sample());
             int16_t v = (int16_t)(s * 12000.0);
             if (v > 32767) v = 32767; if (v < -32768) v = -32768;
             buf[i * CHANNELS] = v;
