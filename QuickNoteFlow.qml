@@ -363,6 +363,35 @@ Item {
     }
   }
 
+  // Restore a backed-up seal: pick the file and copy it into the notes folder
+  // as .quicknote-seal. Do this BEFORE the first unlock on a new machine, or
+  // the daemon would create a fresh salt and old notes could not decrypt.
+  function importSeal() {
+    if (importSealProc.running) return
+    // Hide the dialog so the portal file chooser is not behind the overlay.
+    root.dismiss()
+    var seal = root.expandedNotesDir() + "/.quicknote-seal"
+    var cmd = "src=$(omarchy-file-select --title 'Select your quicknote-seal backup' 2>/dev/null); "
+      + "if [[ -n $src && -f \"$src\" ]]; then "
+      + "mkdir -p " + Util.shellQuote(root.expandedNotesDir())
+      + " && cp \"$src\" " + Util.shellQuote(seal)
+      + " && chmod 600 " + Util.shellQuote(seal)
+      + " && echo restored; else echo cancelled; fi"
+    importSealProc.command = ["bash", "-lc", cmd]
+    importSealProc.running = true
+  }
+
+  function onSealImported(out) {
+    var text = String(out || "").trim()
+    if (text === "restored") {
+      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+        "Seal restored", "Now reopen Quick Notes and unlock with your password"])
+    } else {
+      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+        "Import cancelled", "No seal was copied"])
+    }
+  }
+
   function expandedNotesDir() {
     var d = root.notesDir
     if (d.indexOf("~") === 0) return root.home + d.slice(1)
@@ -747,6 +776,16 @@ Item {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.onSealExported(text)
+    }
+  }
+
+  // Seal restore helper (file chooser -> copy into the notes dir).
+  Process {
+    id: importSealProc
+    command: []
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.onSealImported(text)
     }
   }
 
@@ -1307,6 +1346,14 @@ Item {
           visible: root.cryptoEnabled
           tooltipText: "Back up the .quicknote-seal (needed to unlock on other machines)"
           onClicked: root.exportSeal()
+        }
+
+        Button {
+          text: "Import"
+          fontFamily: root.fontFamily
+          visible: root.cryptoEnabled
+          tooltipText: "Restore a .quicknote-seal backup before unlocking on a new machine"
+          onClicked: root.importSeal()
         }
 
         Button {

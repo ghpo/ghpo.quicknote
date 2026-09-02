@@ -26,8 +26,9 @@ private git remote** — everything optional and configurable per widget.
 - **Git sync**: pull + commit + push to a private remote from inside the app,
   with a live log window, an editable remote, a copy-public-key button and an
   SSH-key setup guide.
-- **Seal backup**: exports the `.quicknote-seal` (the salt needed to unlock
-  the same notes on another machine) to a location you choose.
+- **Seal backup / restore**: `Seal` exports the `.quicknote-seal` (the salt
+  needed to unlock the same notes on another machine) to a folder you choose;
+  `Import` restores a backup into the notes folder before the first unlock.
 - The `?` button opens an in-dialog guide with embedded MIDI (Darude –
   Sandstorm) played by a self-contained C synthesizer — no external player or
   soundfont needed.
@@ -127,6 +128,10 @@ While unlocked the footer offers:
 - **Pass** — change the password; every note is decrypted and re-encrypted
   with a new key, then the remote is re-synced if one is configured.
 - **Seal** — back up the `.quicknote-seal` (folder picker).
+- **Import** — restore a `.quicknote-seal` backup into the notes folder. Do
+  this **before the first Unlock on a new machine** (see
+  [Recovery](#sync--recovery-checklist)): if you unlock without a seal, the
+  daemon creates a new salt and the old notes cannot decrypt.
 - **Sync** — open the sync window (below).
 
 ### Sync window
@@ -214,9 +219,9 @@ passphrase (a sentence works well). This is not a trusted desktop vault:
 2. Set `gitRemote`, open **Sync**, confirm **OK**.
 3. Press **Seal** and store a copy outside the machine (the salt is not in the
    repo on purpose).
-4. To restore on a new machine: clone/install, drop the backed-up
-   `.quicknote-seal` into the notes folder, then Unlock with the password and
-   run Sync.
+4. To restore on a new machine: clone/install, press **Import** and pick the
+   backed-up seal (or copy it into the notes folder as `.quicknote-seal`),
+   **then** Unlock with the password and run Sync.
 
 ## Files
 
