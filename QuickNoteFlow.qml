@@ -220,7 +220,7 @@ Item {
         root.changeOpen = false
         Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
           "Password changed", "All notes were re-encrypted"])
-        if (root.gitRemote !== "") root.gitSync()
+        if (root.gitRemote !== "") root.openSync()
       } else {
         root.changeError = res.error || "Failed to change password"
       }
@@ -235,27 +235,103 @@ Item {
     })
   }
 
-  // Git sync (manual): pull, commit, push. Only meaningful once a remote is
-  // configured (gitRemote setting).
-  property bool gitBusy: false
+  // Git sync (manual): pull, commit, push. The dialog shows the live script
+  // output so the user can see exactly what succeeded or failed.
+  property bool syncOpen: false
+  property bool syncBusy: false
+  property string syncOutput: ""
+  property string syncStatus: ""     // "", "ok", "error"
+  property string syncRemoteEdit: ""
+  property bool syncSshOpen: false
 
-  function gitSync() {
-    if (root.gitBusy || !root.gitRemote) return
-    root.gitBusy = true
-    gitProc.command = [root.sourceDir + "/quicknote-git.sh", root.notesDir, root.gitRemote, "sync"]
+  function syncLogAdd(extra) {
+    if (extra) root.syncOutput = root.syncOutput + String(extra) + "\n"
+    else root.syncOutput = root.syncOutput + "\n"
+    Qt.callLater(function() {
+      syncLogFlick.contentY = Math.max(0, syncLogText.height - syncLogFlick.height)
+    })
+  }
+
+  function openSync() {
+    if (root.syncBusy) return
+    root.syncRemoteEdit = root.gitRemote
+    root.syncOutput = ""
+    root.syncStatus = ""
+    root.syncOpen = true
+    Qt.callLater(function() { root.startSync() })
+  }
+
+  function closeSync() {
+    if (root.syncBusy) return
+    root.syncOpen = false
+  }
+
+  function startSync() {
+    if (root.syncBusy) return
+    root.syncRemoteEdit = (root.syncRemoteEdit || "").trim()
+    root.syncOutput = ""
+    root.syncStatus = ""
+    root.syncBusy = true
+    root.syncLogAdd("▶ syncing notes (" + root.syncRemoteEdit + ") ...")
+    var args = [root.sourceDir + "/quicknote-git.sh", root.notesDir]
+    if (root.syncRemoteEdit) args.push(root.syncRemoteEdit)
+    args.push("sync")
+    gitProc.command = args
     gitProc.running = true
   }
 
-  function onGitDone(exitCode) {
-    root.gitBusy = false
-    if (exitCode === 0) {
+  function onSyncFinished(outputText) {
+    root.syncBusy = false
+    var out = String(outputText || "").trim()
+    root.syncOutput = out
+    if (out.indexOf("quicknote: OK") !== -1) {
+      root.syncStatus = "ok"
       Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-        "Notes synced", "Pulled and pushed from/to " + root.gitRemote])
+        "Notes synced", "Pulled and pushed from/to " + root.syncRemoteEdit])
     } else {
+      root.syncStatus = "error"
       Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-        "Sync failed", "Check the git remote/SSH setup"])
+        "Sync failed", "See the log for details"])
     }
     root.reloadNotes()
+  }
+
+  // Persist the remote back into shell.json so the bar button uses it too.
+  function saveRemote() {
+    var v = (root.syncRemoteEdit || "").trim()
+    root.syncRemoteEdit = v
+    root.gitRemote = v
+    var saved = false
+    try {
+      if (root.shell && typeof root.shell.updateEntryInline === "function") {
+        var id = (root.manifest && root.manifest.id) || "ghpo.quicknote"
+        var next = { encryption: root.cryptoEnabled }
+        next.gitRemote = v
+        saved = root.shell.updateEntryInline(id, next) === true
+      }
+    } catch (e) { saved = false }
+    Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+      saved ? "Remote saved" : "Remote updated for this session only",
+      v ? v : "(empty = no sync)"])
+    if (v && !root.syncBusy) Qt.callLater(function() { root.startSync() })
+  }
+
+  // Copy the public half of the SSH key so the user can paste it into GitHub.
+  function copyPubKey() {
+    var cmd = "k=$HOME/.ssh/id_ed25519.pub; if [[ -f $k ]]; then wl-copy < \"$k\" && echo copied; else echo missing; fi"
+    pubKeyProc.command = ["bash", "-c", cmd]
+    pubKeyProc.running = true
+  }
+
+  function onPubKeyCopied(out) {
+    var text = String(out || "").trim()
+    if (text.indexOf("copied") !== -1) {
+      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+        "Public key copied", "Paste it on GitHub under Settings → SSH keys"])
+    } else {
+      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+        "No SSH key found", "Generate one: ssh-keygen -t ed25519"])
+    }
   }
 
   // Backup the .quicknote-seal (salt + verification blob) — needed to unlock
@@ -638,11 +714,25 @@ Item {
     command: []
   }
 
-  // Git sync helper (pull + commit + push).
+  // Git sync helper (pull + commit + push). Its whole output is shown in the
+  // sync window so the user can read exactly what happened.
   Process {
     id: gitProc
     command: []
-    onExited: root.onGitDone(exitCode)
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.onSyncFinished(text)
+    }
+  }
+
+  // Copy the SSH public key to the clipboard.
+  Process {
+    id: pubKeyProc
+    command: []
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.onPubKeyCopied(text)
+    }
   }
 
   // Seal backup helper (file chooser -> copy).
@@ -1156,10 +1246,10 @@ Item {
         Button {
           text: "Sync"
           fontFamily: root.fontFamily
-          visible: root.gitRemote !== ""
-          enabled: !root.gitBusy
-          tooltipText: "Pull + push notes to " + root.gitRemote
-          onClicked: root.gitSync()
+          visible: root.cryptoEnabled && root.cryptoUnlocked
+          enabled: !root.syncBusy
+          tooltipText: "Pull + push notes to a git remote"
+          onClicked: root.openSync()
         }
 
         Item { Layout.fillWidth: true }
@@ -1534,6 +1624,194 @@ Item {
                   active: true
                   enabled: !root.changeBusy
                   onClicked: root.submitChangePass()
+                }
+              }
+            }
+
+          }
+        }
+        Item {
+          id: syncModal
+          anchors.fill: parent
+          z: 80
+          visible: root.syncOpen
+
+          Rectangle {
+            anchors.fill: parent
+            color: Qt.rgba(0, 0, 0, 0.55)
+            MouseArea { anchors.fill: parent; onClicked: {} }
+          }
+
+          BorderSurface {
+            id: syncCard
+            width: Math.min(parent.width - Style.space(48), Style.space(600))
+            height: syncCard.contentTopInset + syncCard.contentBottomInset + syncCol.implicitHeight + Style.space(24)
+            anchors.centerIn: parent
+            color: root.background
+            borderSpec: Border.flat(root.neonColor, Style.normalBorderWidth)
+            padding: Style.space(16)
+            radius: root.cornerRadius
+
+            MouseArea { anchors.fill: parent; onClicked: {} }
+
+            ColumnLayout {
+              id: syncCol
+              anchors.fill: parent
+              anchors.topMargin: syncCard.contentTopInset
+              anchors.rightMargin: syncCard.contentRightInset
+              anchors.bottomMargin: syncCard.contentBottomInset
+              anchors.leftMargin: syncCard.contentLeftInset
+              spacing: Style.spacing.sm
+
+              Text {
+                Layout.fillWidth: true
+                text: "Sync notes"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.heading
+                font.bold: true
+              }
+
+              Text {
+                Layout.fillWidth: true
+                visible: root.syncStatus !== ""
+                text: root.syncStatus === "ok" ? "Sync OK — notes pushed to the remote."
+                     : root.syncStatus === "error" ? "Sync FAILED — see the log below."
+                     : "Working..."
+                color: root.syncStatus === "error" ? Color.urgent : "#77b877"
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+              }
+
+              // Live log panel.
+              Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 170
+                color: Qt.rgba(0, 0, 0, 0.28)
+                radius: textBoxRadius
+                clip: true
+
+                Flickable {
+                  id: syncLogFlick
+                  anchors.fill: parent
+                  anchors.margins: Style.space(8)
+                  contentWidth: width
+                  contentHeight: syncLogText.height
+                  clip: true
+
+                  Text {
+                    id: syncLogText
+                    text: root.syncOutput
+                    width: syncLogFlick.width
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    wrapMode: Text.Wrap
+                    textFormat: Text.PlainText
+                  }
+                }
+              }
+
+              // Remote repository editor.
+              RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Style.spacing.xs
+                Text {
+                  text: "Git remote"
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+                Item { Layout.fillWidth: true }
+              }
+              TextField {
+                id: syncRemoteField
+                Layout.fillWidth: true
+                text: root.syncRemoteEdit
+                placeholderText: "git@github.com:user/notes.git  (empty = no sync)"
+                foreground: root.foreground
+                accent: Color.accent
+                onTextEdited: root.syncRemoteEdit = text
+                onAccepted: root.saveRemote()
+              }
+
+              // Actions.
+              RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Style.spacing.xs
+                Button {
+                  text: "Copy public key"
+                  fontFamily: root.fontFamily
+                  tooltipText: "Copies ~/.ssh/id_ed25519.pub to paste into GitHub"
+                  onClicked: root.copyPubKey()
+                }
+                Button {
+                  text: "SSH key help"
+                  fontFamily: root.fontFamily
+                  active: root.syncSshOpen
+                  tooltipText: "How to generate and register an SSH key"
+                  onClicked: root.syncSshOpen = !root.syncSshOpen
+                }
+                Item { Layout.fillWidth: true }
+                Button {
+                  text: "Save remote"
+                  fontFamily: root.fontFamily
+                  tooltipText: "Save this remote into the Quick Notes settings"
+                  onClicked: root.saveRemote()
+                }
+                Button {
+                  text: "Sync now"
+                  fontFamily: root.fontFamily
+                  active: true
+                  enabled: !root.syncBusy
+                  onClicked: root.startSync()
+                }
+                Button {
+                  text: "Close"
+                  fontFamily: root.fontFamily
+                  enabled: !root.syncBusy
+                  onClicked: root.closeSync()
+                }
+              }
+
+              // SSH setup guide.
+              Rectangle {
+                Layout.fillWidth: true
+                visible: root.syncSshOpen
+                Layout.preferredHeight: root.syncSshOpen ? 150 : 0
+                color: Qt.rgba(0, 0, 0, 0.18)
+                radius: textBoxRadius
+                clip: true
+
+                Flickable {
+                  id: syncHelpFlick
+                  anchors.fill: parent
+                  anchors.margins: Style.space(8)
+                  contentWidth: width
+                  contentHeight: syncHelpText.height
+                  clip: true
+                  Text {
+                    id: syncHelpText
+                    width: syncHelpFlick.width
+                    color: Qt.darker(root.foreground, 1.25)
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.WordWrap
+                    textFormat: Text.PlainText
+                    text: "Setting up the SSH key for GitHub:\n\n"
+                      + "1.  Generate a key on this machine (skip if you already have one):\n"
+                      + "    ssh-keygen -t ed25519 -C \"you@example.com\"\n"
+                      + "    Press Enter for the default location and no passphrase.\n\n"
+                      + "2.  Make sure the agent has it:\n    ssh-add ~/.ssh/id_ed25519\n\n"
+                      + "3.  Copy the PUBLIC key (ends in .pub) — the button above does it.\n\n"
+                      + "4.  On github.com: Settings → SSH and GPG keys → New SSH key →\n"
+                      + "    paste the key → Add SSH key.\n\n"
+                      + "5.  Test the connection:\n    ssh -T git@github.com\n"
+                      + "    You should see: \"Hi ghpo! You've successfully authenticated.\"\n\n"
+                      + "6.  The remote must use the SSH form git@github.com:user/repo.git\n"
+                      + "    (not the https:// form) for the agent key to be used."
+                  }
                 }
               }
             }
