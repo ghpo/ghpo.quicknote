@@ -246,6 +246,7 @@ Item {
   property string syncStatus: ""     // "", "ok", "error"
   property string syncRemoteEdit: ""
   property bool syncSshOpen: false
+  property bool keyBackupOpen: false
 
   function syncLogAdd(extra) {
     if (extra) root.syncOutput = root.syncOutput + String(extra) + "\n"
@@ -399,6 +400,7 @@ Item {
   }
 
   function open(payloadJson) {
+    root.keyBackupOpen = false
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
     if (payload.fontFamily) {
@@ -440,6 +442,7 @@ Item {
 
   function dismiss() {
     root.opened = false
+    root.keyBackupOpen = false
     if (root.passwordOpen) root.passwordOpen = false
     if (root.helpOpen) root.closeHelp()
     if (root.shell && typeof root.shell.hide === "function")
@@ -1340,20 +1343,68 @@ Item {
           onClicked: root.openChangePass()
         }
 
-        Button {
-          text: "Seal"
-          fontFamily: root.fontFamily
+        Item {
+          width: backupBtn.implicitWidth
+          height: backupBtn.implicitHeight
           visible: root.cryptoEnabled
-          tooltipText: "Back up the .quicknote-seal (needed to unlock on other machines)"
-          onClicked: root.exportSeal()
-        }
 
-        Button {
-          text: "Import"
-          fontFamily: root.fontFamily
-          visible: root.cryptoEnabled
-          tooltipText: "Restore a .quicknote-seal backup before unlocking on a new machine"
-          onClicked: root.importSeal()
+          Button {
+            id: backupBtn
+            anchors.fill: parent
+            text: "Key Backup"
+            fontFamily: root.fontFamily
+            active: root.keyBackupOpen
+            tooltipText: "Back up or restore the .quicknote-seal (needed to unlock on other machines)"
+            onClicked: root.keyBackupOpen = !root.keyBackupOpen
+          }
+
+          BorderSurface {
+            id: backupPop
+            visible: root.keyBackupOpen
+            anchors.right: parent.right
+            anchors.bottom: parent.top
+            anchors.bottomMargin: Style.spacing.xs
+            width: Math.max(parent.width, Style.space(230))
+            height: backupPop.contentTopInset + backupPop.contentBottomInset
+                  + backupCol.implicitHeight + Style.space(12)
+            z: 90
+            color: root.background
+            borderSpec: Border.flat(root.neonColor, Style.normalBorderWidth)
+            radius: root.cornerRadius
+            padding: Style.space(8)
+
+            ColumnLayout {
+              id: backupCol
+              anchors.fill: parent
+              anchors.topMargin: backupPop.contentTopInset
+              anchors.rightMargin: backupPop.contentRightInset
+              anchors.bottomMargin: backupPop.contentBottomInset
+              anchors.leftMargin: backupPop.contentLeftInset
+              spacing: Style.spacing.xs
+
+              Button {
+                Layout.fillWidth: true
+                text: "Export .quicknote-seal"
+                fontFamily: root.fontFamily
+                tooltipText: "Save the seal to a folder you choose (needed to unlock on another machine)"
+                onClicked: {
+                  root.keyBackupOpen = false
+                  root.exportSeal()
+                }
+              }
+
+              Button {
+                Layout.fillWidth: true
+                text: "Import .quicknote-seal"
+                fontFamily: root.fontFamily
+                tooltipText: "Restore a backed-up seal BEFORE unlocking on a new machine"
+                onClicked: {
+                  root.keyBackupOpen = false
+                  root.importSeal()
+                }
+              }
+            }
+          }
         }
 
         Button {
