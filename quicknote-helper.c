@@ -96,6 +96,11 @@ static size_t read_bounded(char *buf, size_t max) {
 
 static int open_notes_dir(void) {
     int fd = open(dir_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0 && errno == ENOENT) {
+        /* create the notes dir on first use (0700, never following symlinks) */
+        if (mkdir(dir_path, 0700) == 0 || errno == EEXIST)
+            fd = open(dir_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    }
     if (fd < 0) { fprintf(stderr, "quicknote-helper: cannot open notes dir\n"); exit(2); }
     struct stat st;
     if (fstat(fd, &st) < 0 || !S_ISDIR(st.st_mode) || st.st_uid != uid_now) {
@@ -466,6 +471,13 @@ int main(int argc, char **argv) {
         const char *home = getenv("HOME");
         snprintf(dir_path, sizeof dir_path, "%s/Documents/QuickNotes",
                  home && *home ? home : "");
+    } else if (dir_path[0] == '~' && dir_path[1] == '/') {
+        /* expand a leading tilde so literal "~/Documents/..." settings work */
+        const char *home = getenv("HOME");
+        char expanded[4096];
+        snprintf(expanded, sizeof expanded, "%s%s",
+                 home && *home ? home : "", dir_path + 1);
+        snprintf(dir_path, sizeof dir_path, "%s", expanded);
     }
 
     if (argc < 2) {
