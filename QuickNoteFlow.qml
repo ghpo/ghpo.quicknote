@@ -208,6 +208,9 @@ Item {
   // the same notes on another machine. Not a secret, but losing it is annoying.
   function exportSeal() {
     if (sealProc.running) return
+    // The Quick Notes overlay is a top layer surface, so the portal file
+    // chooser would open behind it. Hide the dialog first, then export.
+    root.dismiss()
     var seal = root.expandedNotesDir() + "/.quicknote-seal"
     var cmd = "dest=$(omarchy-file-select --title 'Backup .quicknote-seal' --directory 2>/dev/null) && "
       + "[[ -n $dest && -f " + Util.shellQuote(seal) + " ]] && "
