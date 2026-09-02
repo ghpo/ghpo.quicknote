@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ghpo.quicknote",
   "name": "Quick Notes",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "author": "ghpo",
   "description": "Quick note button + dialog that saves notes to ~/Documents/QuickNotes/, with recent-notes list, search, #tags, delete with confirmation and an in-dialog help guide",
   "kinds": [
@@ -34,6 +34,20 @@
         "label": "Notes folder",
         "description": "Where notes are saved (default: ~/Documents/QuickNotes)",
         "defaultValue": "~/Documents/QuickNotes"
+      },
+      {
+        "key": "encryption",
+        "type": "bool",
+        "label": "Encrypt notes",
+        "description": "Encrypt all notes at rest (password asked on first use; key stays in memory until Lock)",
+        "defaultValue": false
+      },
+      {
+        "key": "gitRemote",
+        "type": "string",
+        "label": "Git remote (SSH URL)",
+        "description": "Optional private git remote to sync the notes to (e.g. git@github.com:user/notes.git). Empty = no sync.",
+        "defaultValue": ""
       }
     ]
   }

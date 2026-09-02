@@ -9,12 +9,18 @@ BarWidget {
 
   readonly property string iconGlyph: setting("icon", "󰎚")
   readonly property string notesDir: setting("notesDir", "~/Documents/QuickNotes")
+  readonly property bool encryption: setting("encryption", false)
+  readonly property string gitRemote: setting("gitRemote", "")
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
   function summon() {
-    var payload = JSON.stringify({ notesDir: root.notesDir })
+    var payload = JSON.stringify({
+      notesDir: root.notesDir,
+      encryption: root.encryption,
+      gitRemote: root.gitRemote
+    })
     Quickshell.execDetached(["omarchy-shell", "shell", "summon", "ghpo.quicknote", payload])
   }
 

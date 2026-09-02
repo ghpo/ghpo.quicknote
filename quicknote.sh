@@ -1,16 +1,25 @@
 #!/bin/bash
-# Wrapper that builds the secure C storage helper on first use and execs it.
-# All storage logic lives in quicknote-helper.c; this file only guarantees the
-# binary exists (compiled from the shipped source with the system C compiler)
-# and forwards stdin/argv unchanged.
+# Wrapper that builds the crypto storage daemon (quicknote-crypto.c) on first
+# use and execs it. The daemon reads line-framed JSON commands from stdin; the
+# optional --plain flag disables encryption. Requires cc + libsodium headers
+# (libsodium is standard on Arch/Omarchy).
 set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-bin="$dir/quicknote-helper"
+bin="$dir/quicknote-crypto"
 
 if [[ ! -x $bin ]]; then
-  cc -O2 -Wall -o "$bin" "$dir/quicknote-helper.c" 2>/dev/null \
-    || { echo "quicknote: failed to build helper (cc unavailable?)" >&2; exit 3; }
+  for C in cc gcc clang; do
+    if command -v "$C" >/dev/null 2>&1; then
+      "$C" -O2 -o "$bin" "$dir/quicknote-crypto.c" -lsodium 2>/dev/null && break
+      rm -f "$bin"
+    fi
+  done
 fi
 
-exec "$bin" "$@"
+if [[ -x $bin ]]; then
+  exec "$bin" "$@"
+fi
+
+echo "quicknote: failed to build storage helper (needs cc + libsodium headers)" >&2
+exit 3

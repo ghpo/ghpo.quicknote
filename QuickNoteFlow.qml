@@ -35,6 +35,18 @@ Item {
   property int maxNoteChars: 50000
   property int maxQueryChars: 200
 
+  // Crypto / storage-daemon state.
+  property bool cryptoEnabled: false
+  property bool cryptoUnlocked: false
+  property string gitRemote: ""
+  property string cryptoDir: ""
+  property bool cryptoPlain: false
+  property bool cryptoStarted: false
+  property var cryptoQueue: []
+  property var cryptoWaiting: null
+  property bool passwordOpen: false
+  property string passwordError: ""
+
   property color background: Color.menu.background
   property color foreground: Color.menu.text
   property color border: Color.menu.border
@@ -59,10 +71,127 @@ Item {
   }
   readonly property string quicknoteScript: root.sourceDir + "/quicknote.sh"
 
-  function scriptCommand(args) {
-    // setsid puts the helper in its own session/process group so a watchdog
-    // TERM/KILL on it never bleeds into the shell's own process group.
-    return ["setsid", root.quicknoteScript, "--dir", root.notesDir].concat(args)
+  function daemonCommand() {
+    var args = [root.quicknoteScript, "--dir", root.notesDir]
+    if (!root.cryptoEnabled) args.push("--plain")
+    // setsid: own session/process group so the daemon is isolated.
+    return ["setsid"].concat(args)
+  }
+
+  // Serialize requests to the storage daemon: one JSON request per line on
+  // stdin, one JSON response per line on stdout (SplitParser).
+  function cryptoSend(req, cb) {
+    cryptoQueue.push({ req: req, cb: cb || null })
+    root.cryptoPump()
+  }
+
+  function cryptoPump() {
+    if (!root.cryptoStarted || root.cryptoWaiting) return
+    if (cryptoQueue.length === 0) return
+    var item = cryptoQueue.shift()
+    cryptoWaiting = item
+    cryptoWatchdog.restart()
+    cryptoProc.write(JSON.stringify(item.req) + "\n")
+  }
+
+  function onCryptoLine(raw) {
+    cryptoWatchdog.stop()
+    var res = ({})
+    try { res = JSON.parse(String(raw || "")) } catch (e) { res = ({ ok: false, error: "bad response" }) }
+    var item = cryptoWaiting
+    cryptoWaiting = null
+
+    if (!item) { return }
+
+    if (item.req.op === "unlock") {
+      if (res.ok) {
+        root.cryptoUnlocked = true
+        root.passwordOpen = false
+        root.passwordError = ""
+        if (item.cb) item.cb(res)
+      } else {
+        root.passwordError = res.error || "Unable to unlock"
+        if (item.cb) item.cb(res)
+      }
+    } else if (!res.ok && res.error === "locked") {
+      // Daemon is locked (encrypted + no key yet). Prompt, then retry once.
+      if (item.cb) item.cb(res)
+      if (!root.cryptoPlain) {
+        cryptoQueue.unshift(item)   // retry the request after unlock
+        root.promptPassword()
+      }
+    } else {
+      if (res.ok && item.req.op !== "ping") root.cryptoUnlocked = true
+      if (item.cb) item.cb(res)
+    }
+    root.cryptoPump()
+  }
+
+  // Bring the daemon up for the current notesDir/encryption mode.
+  function ensureCrypto(readyCb) {
+    var plainMode = !root.cryptoEnabled
+    if (cryptoProc.running && root.cryptoDir === root.notesDir
+        && root.cryptoPlain === plainMode && root.cryptoStarted) {
+      if (readyCb) readyCb()
+      return
+    }
+    cryptoQueue = []
+    cryptoWaiting = null
+    root.cryptoStarted = false
+    cryptoProc.running = false
+    root.cryptoDir = root.notesDir
+    root.cryptoPlain = plainMode
+    cryptoProc.command = root.daemonCommand()
+    cryptoProc.running = true
+    if (readyCb) readyCb()
+  }
+
+  function promptPassword() {
+    if (root.cryptoPlain || root.cryptoUnlocked) return
+    root.passwordOpen = true
+    root.passwordError = ""
+    Qt.callLater(function() { passwordField.forceActiveFocus() })
+  }
+
+  function submitPassword() {
+    var pw = passwordField.text
+    if (!pw) return
+    passwordField.text = ""
+    root.cryptoUnlocked = false
+    root.cryptoSend({ op: "unlock", password: pw }, function(res) {
+      if (res.ok) root.reloadNotes()
+    })
+  }
+
+  function lockCrypto() {
+    root.cryptoSend({ op: "lock" }, function() {
+      root.cryptoUnlocked = false
+      notesModel.clear()
+      noteList.currentIndex = -1
+    })
+  }
+
+  // Git sync (manual): pull, commit, push. Only meaningful once a remote is
+  // configured (gitRemote setting).
+  property bool gitBusy: false
+
+  function gitSync() {
+    if (root.gitBusy || !root.gitRemote) return
+    root.gitBusy = true
+    gitProc.command = [root.sourceDir + "/quicknote-git.sh", root.notesDir, root.gitRemote, "sync"]
+    gitProc.running = true
+  }
+
+  function onGitDone(exitCode) {
+    root.gitBusy = false
+    if (exitCode === 0) {
+      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+        "Notes synced", "Pulled and pushed from/to " + root.gitRemote])
+    } else {
+      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+        "Sync failed", "Check the git remote/SSH setup"])
+    }
+    root.reloadNotes()
   }
 
   function open(payloadJson) {
@@ -77,13 +206,24 @@ Item {
       if (dir.length > 0 && dir.length <= 1024 && dir.indexOf("\u0000") === -1)
         root.notesDir = dir
     }
+    root.cryptoEnabled = !!payload.encryption
+    if (payload.gitRemote) root.gitRemote = String(payload.gitRemote).slice(0, 512)
 
     root.opened = true
     root.startNewNote()
     searchField.text = ""
     root.searchText = ""
     root.cursorActive = false
-    root.reloadNotes()
+
+    // Start the storage daemon, then load notes (prompts for the password
+    // automatically if encryption is on and the key is not in RAM).
+    root.ensureCrypto(function() {
+      root.cryptoSend({ op: "ping" }, function(res) {
+        root.cryptoUnlocked = !!res.unlocked || root.cryptoPlain
+        if (!root.cryptoUnlocked) root.promptPassword()
+        else root.reloadNotes()
+      })
+    })
 
     Qt.callLater(function() { noteEditor.forceActiveFocus() })
   }
@@ -94,6 +234,7 @@ Item {
 
   function dismiss() {
     root.opened = false
+    if (root.passwordOpen) root.passwordOpen = false
     if (root.helpOpen) root.closeHelp()
     if (root.shell && typeof root.shell.hide === "function")
       root.shell.hide((root.manifest && root.manifest.id) || "ghpo.quicknote")
@@ -110,28 +251,21 @@ Item {
     Qt.callLater(function() { noteEditor.forceActiveFocus() })
   }
 
-  function runNotes(args) {
-    notesProc.running = false
-    killTimer.stop()
-    notesProc.command = root.scriptCommand(args)
-    notesWatchdog.restart()
-    notesProc.running = true
-  }
-
   function reloadNotes() {
-    root.runNotes(["list", String(root.listLimit)])
+    root.cryptoSend({ op: "list", limit: root.listLimit }, function(res) {
+      if (res.ok && res.notes) root.applyNotes(res.notes)
+      else if (res.error !== "locked") console.warn("quicknote: list failed", res.error)
+    })
   }
 
   function runSearch(query) {
     var q = String(query || "")
     if (q.length > root.maxQueryChars) q = q.slice(0, root.maxQueryChars)
-    if (!q) {
-      root.reloadNotes()
-      return
-    }
-    // Query travels on stdin (NUL-terminated), never in argv.
-    notesProc.payload = q
-    root.runNotes(["search", String(root.listLimit)])
+    if (!q) { root.reloadNotes(); return }
+    root.cryptoSend({ op: "search", query: q }, function(res) {
+      if (res.ok && res.notes) root.applyNotes(res.notes)
+      else if (res.error !== "locked") console.warn("quicknote: search failed", res.error)
+    })
   }
 
   function applyFilter() {
@@ -142,22 +276,14 @@ Item {
     else root.reloadNotes()
   }
 
-  function applyNotesOutput(raw) {
-    var entries = []
-    try {
-      var parsed = JSON.parse(String(raw || "[]"))
-      if (Array.isArray(parsed)) entries = parsed
-    } catch (e) {
-      entries = []
-    }
-
+  function applyNotes(entries) {
     notesModel.clear()
-    // Bounded, schema-validated ingestion: ignore anything that isn't a plain
-    // object, cap every field length, cap tag count, and never append more
-    // than listLimit rows.
-    var max = Math.min(entries.length, root.listLimit)
+    // Bounded, schema-validated ingestion: cap every field length, cap tag
+    // count, and never append more than listLimit rows.
+    var list = Array.isArray(entries) ? entries : []
+    var max = Math.min(list.length, root.listLimit)
     for (var i = 0; i < max; i++) {
-      var e = entries[i]
+      var e = list[i]
       if (!e || typeof e !== "object") continue
       var path = String(e.path || "").slice(0, 1024)
       if (!path) continue
@@ -198,10 +324,7 @@ Item {
 
   function copyText(text) {
     if (!text) return
-    // Copy via the helper (stdin -> wl-copy): no temp files, no argv content.
-    copyProc.command = root.scriptCommand(["copy"])
-    copyProc.payload = text
-    copyProc.running = true
+    root.cryptoSend({ op: "copy", content: String(text) })
   }
 
   function openIndex(index) {
@@ -212,6 +335,14 @@ Item {
 
   function openFile(path) {
     if (!path) return
+    if (root.cryptoEnabled) {
+      // Encrypted notes can't be handed to an external editor safely; copy.
+      root.copyText(root.note)
+      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+        "Note copied", "Encrypted notes can't be opened externally; copied to clipboard"])
+      root.dismiss()
+      return
+    }
     Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-launch-editor", path])
     root.dismiss()
   }
@@ -247,11 +378,16 @@ Item {
     root.pendingDeletePath = ""
     if (!path) return
 
-    // Supervised: only refresh after the helper confirms deletion.
-    mutationProc.command = root.scriptCommand(["delete", path.split("/").pop()])
-    mutationProc.payload = ""
-    mutationProc.kind = "delete"
-    mutationProc.running = true
+    // Supervised: only refresh after the daemon confirms deletion.
+    root.cryptoSend({ op: "delete", file: path.split("/").pop() }, function(res) {
+      if (res.ok) {
+        if (root.editingFile === path) root.startNewNote()
+        root.reloadNotes()
+      } else if (res.error !== "locked") {
+        Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+          "Error deleting", "The helper failed"])
+      }
+    })
   }
 
   // While the delete confirm is open, key events go to the modal.
@@ -292,6 +428,14 @@ Item {
 
   // Unified modal key routing: help first, then the delete confirm.
   function modalKey(event) {
+    if (root.passwordOpen) {
+      if (event.key === Qt.Key_Escape) {
+        root.passwordOpen = false
+        event.accepted = true
+        return true
+      }
+      return true
+    }
     if (root.helpOpen) {
       if (event.key === Qt.Key_Escape || event.key === Qt.Key_Return
           || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
@@ -331,125 +475,78 @@ Item {
       return
     }
 
-    // Supervised: wait for the helper's exit before reporting + refreshing.
-    var args = ["save"]
-    if (root.editingFile) args.push("--edit", root.editingFile.split("/").pop())
-    mutationProc.command = root.scriptCommand(args)
-    mutationProc.payload = text
-    mutationProc.kind = "save"
-    mutationProc.running = true
-  }
-
-  // Called when a supervised save/delete finishes.
-  function onMutationFinished(exitCode) {
-    var kind = mutationProc.kind
-    mutationProc.kind = ""
-    if (kind === "save") {
-      if (exitCode === 0) {
+    // Supervised: only report success / refresh after the daemon confirms.
+    root.cryptoSend({
+      op: "save",
+      content: text,
+      edit: root.editingFile ? root.editingFile.split("/").pop() : null
+    }, function(res) {
+      if (res.ok) {
         Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
           "Quick note saved", "Your note was saved in " + root.notesDir])
         root.dismiss()
         root.reloadNotes()
-      } else {
+      } else if (res.error !== "locked") {
         Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-          "Error saving", "The helper failed (code " + exitCode + ")"])
+          "Error saving", "The helper failed"])
       }
-    } else if (kind === "delete") {
-      if (exitCode === 0) {
-        if (root.editingFile === root.pendingDeletePath) root.startNewNote()
-        root.reloadNotes()
-      } else {
-        Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-          "Error deleting", "The helper failed (code " + exitCode + ")"])
-      }
-    }
+    })
   }
 
   ListModel { id: notesModel }
 
+  // Single long-lived storage daemon: holds the key (encryption) or runs in
+  // plain mode. JSON requests on stdin, JSON responses (one per line) here.
   Process {
-    id: notesProc
-    command: root.scriptCommand(["list", "50"])
+    id: cryptoProc
+    command: ["setsid"]
     stdinEnabled: true
-    property var payload: undefined
+    stdout: SplitParser {
+      onRead: function(data) { root.onCryptoLine(String(data)) }
+    }
     onStarted: {
-      if (notesProc.payload !== undefined) {
-        notesProc.write(String(notesProc.payload) + "\u0000")
-        notesProc.payload = undefined
-      }
+      root.cryptoStarted = true
+      root.cryptoPump()
     }
     onExited: {
-      notesWatchdog.stop()
-      killTimer.stop()
+      root.cryptoStarted = false
+      root.cryptoWaiting = null
+      cryptoQueue = []
     }
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.applyNotesOutput(text)
+  }
+
+  // Request watchdog: if the daemon stops answering, restart it rather than
+  // leaving the UI hung.
+  Timer {
+    id: cryptoWatchdog
+    interval: 30000
+    repeat: false
+    onTriggered: {
+      if (!root.cryptoWaiting) return
+      console.warn("quicknote: crypto daemon stalled, restarting")
+      var failed = root.cryptoWaiting
+      root.cryptoWaiting = null
+      cryptoQueue = []
+      cryptoProc.running = false
+      Qt.callLater(function() { root.ensureCrypto(null) })
+      if (failed.cb) failed.cb({ ok: false, error: "daemon restart" })
     }
   }
 
   // Watchdog: a list/search that stalls past its budget gets a TERM, then
   // KILL, signalled to the helper's whole process group (negative pid, valid
   // because the helper runs under setsid as a session/group leader).
-  Timer {
-    id: notesWatchdog
-    interval: 15000
-    repeat: false
-    onTriggered: {
-      if (!notesProc.running) return
-      var pid = Number(notesProc.processId)
-      console.warn("quicknote: notesProc watchdog TERM group", pid)
-      if (pid > 0) notesProc.signal(-pid)
-      killTimer.start()
-    }
-  }
-
-  Timer {
-    id: killTimer
-    interval: 2000
-    repeat: false
-    onTriggered: {
-      if (!notesProc.running) return
-      var pid = Number(notesProc.processId)
-      console.warn("quicknote: notesProc watchdog KILL group", pid)
-      if (pid > 0) notesProc.signal(-pid)
-      notesProc.running = false
-    }
-  }
-
-  // Supervised save/delete helper: stdin carries the note (NUL-terminated),
-  // exit status drives success/failure handling.
-  Process {
-    id: mutationProc
-    stdinEnabled: true
-    property var payload: undefined
-    property string kind: ""
-    onStarted: {
-      if (mutationProc.payload !== undefined) {
-        mutationProc.write(String(mutationProc.payload) + "\u0000")
-        mutationProc.payload = undefined
-      }
-    }
-    onExited: root.onMutationFinished(exitCode)
-  }
-
-  // Clipboard helper: note text over stdin -> wl-copy, no temp files.
-  Process {
-    id: copyProc
-    stdinEnabled: true
-    property var payload: undefined
-    onStarted: {
-      if (copyProc.payload !== undefined) {
-        copyProc.write(String(copyProc.payload) + "\u0000")
-        copyProc.payload = undefined
-      }
-    }
-  }
-
-  // Help-overlay background music (play-music.sh -> timidity).
+  // Help-overlay background music (play-music.sh -> native player).
   Process {
     id: musicProc
     command: []
+  }
+
+  // Git sync helper (pull + commit + push).
+  Process {
+    id: gitProc
+    command: []
+    onExited: root.onGitDone(exitCode)
   }
 
   Timer {
@@ -921,33 +1018,50 @@ Item {
 
         Button {
           text: "?"
-            fontFamily: root.fontFamily
-            tooltipText: "How it works"
-            onClicked: root.openHelp()
-          }
-
-          Item { Layout.fillWidth: true }
-
-          Button {
-            text: "New"
-            fontFamily: root.fontFamily
-            visible: root.editingFile !== ""
-            onClicked: root.startNewNote()
-          }
-
-          Button {
-            text: "Close"
-            fontFamily: root.fontFamily
-            onClicked: root.dismiss()
-          }
-
-          Button {
-            text: "Save"
-            fontFamily: root.fontFamily
-            active: true
-            onClicked: root.saveAndClose()
-          }
+          fontFamily: root.fontFamily
+          tooltipText: "How it works"
+          onClicked: root.openHelp()
         }
+
+        Button {
+          text: "Lock"
+          fontFamily: root.fontFamily
+          visible: root.cryptoEnabled
+          tooltipText: "Forget the encryption key (asks for the password again)"
+          onClicked: root.lockCrypto()
+        }
+
+        Button {
+          text: "Sync"
+          fontFamily: root.fontFamily
+          visible: root.gitRemote !== ""
+          enabled: !root.gitBusy
+          tooltipText: "Pull + push notes to " + root.gitRemote
+          onClicked: root.gitSync()
+        }
+
+        Item { Layout.fillWidth: true }
+
+        Button {
+          text: "New"
+          fontFamily: root.fontFamily
+          visible: root.editingFile !== ""
+          onClicked: root.startNewNote()
+        }
+
+        Button {
+          text: "Close"
+          fontFamily: root.fontFamily
+          onClicked: root.dismiss()
+        }
+
+        Button {
+          text: "Save"
+          fontFamily: root.fontFamily
+          active: true
+          onClicked: root.saveAndClose()
+        }
+      }
       }
 
         ConfirmDialog {
@@ -1060,6 +1174,106 @@ Item {
                   fontFamily: root.fontFamily
                   active: true
                   onClicked: root.closeHelp()
+                }
+              }
+            }
+          }
+        }
+
+        Item {
+          id: passwordModal
+          anchors.fill: parent
+          z: 60
+          visible: root.passwordOpen
+
+          Rectangle {
+            anchors.fill: parent
+            color: Qt.rgba(0, 0, 0, 0.55)
+            MouseArea { anchors.fill: parent; onClicked: {} }
+          }
+
+          BorderSurface {
+            id: passCard
+            width: Math.min(parent.width - Style.space(48), Style.space(400))
+            height: passCard.contentTopInset + passCard.contentBottomInset + passCol.implicitHeight + Style.space(28)
+            anchors.centerIn: parent
+            color: root.background
+            borderSpec: Border.flat(root.neonColor, Style.normalBorderWidth)
+            padding: Style.space(18)
+            radius: root.cornerRadius
+
+            MouseArea { anchors.fill: parent; onClicked: {} }
+
+            ColumnLayout {
+              id: passCol
+              anchors.fill: parent
+              anchors.topMargin: passCard.contentTopInset
+              anchors.rightMargin: passCard.contentRightInset
+              anchors.bottomMargin: passCard.contentBottomInset
+              anchors.leftMargin: passCard.contentLeftInset
+              spacing: Style.spacing.sm
+
+              Text {
+                Layout.fillWidth: true
+                text: "Unlock notes"
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.heading
+                font.bold: true
+              }
+
+              Text {
+                Layout.fillWidth: true
+                text: "Your notes are encrypted. Enter the password to decrypt them. The key stays in memory until you press Lock."
+                color: Qt.darker(root.foreground, 1.3)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                wrapMode: Text.WordWrap
+              }
+
+              TextField {
+                id: passwordField
+                Layout.fillWidth: true
+                Layout.topMargin: Style.spacing.sm
+                password: true
+                placeholderText: "Password"
+                foreground: root.foreground
+                accent: Color.accent
+                onAccepted: root.submitPassword()
+
+                Keys.priority: Keys.BeforeItem
+                Keys.onPressed: function(event) {
+                  if (event.key === Qt.Key_Escape) {
+                    root.passwordOpen = false
+                    event.accepted = true
+                  }
+                }
+              }
+
+              Text {
+                Layout.fillWidth: true
+                visible: root.passwordError !== ""
+                text: root.passwordError
+                color: Color.urgent
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+              }
+
+              RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Style.spacing.sm
+                Item { Layout.fillWidth: true }
+                Button {
+                  text: "Cancel"
+                  fontFamily: root.fontFamily
+                  onClicked: root.passwordOpen = false
+                }
+                Button {
+                  text: "Unlock"
+                  fontFamily: root.fontFamily
+                  active: true
+                  onClicked: root.submitPassword()
                 }
               }
             }
