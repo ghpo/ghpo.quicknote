@@ -860,8 +860,6 @@ Item {
 
                   background: Rectangle { color: "transparent" }
 
-                  background: Rectangle { color: "transparent" }
-
                   onTextChanged: root.note = noteEditor.text
 
                 Keys.priority: Keys.BeforeItem
