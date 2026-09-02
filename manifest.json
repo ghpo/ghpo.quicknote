@@ -4,7 +4,7 @@
   "name": "Quick Notes",
   "version": "2.0.0",
   "author": "ghpo",
-  "description": "Quick note button + dialog that saves notes to ~/Documents/QuickNotes/, with recent-notes list, search, #tags, delete with confirmation and an in-dialog help guide",
+  "description": "Quick note button + dialog with optional encrypted storage (XChaCha20-Poly1305 + Argon2id), recent-notes list, search, #tags, delete confirmation, change-password re-encryption, and git sync to a private remote",
   "kinds": [
     "bar-widget",
     "overlay"
