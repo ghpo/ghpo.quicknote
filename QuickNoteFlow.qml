@@ -42,6 +42,9 @@ Item {
   property string cryptoDir: ""
   property bool cryptoPlain: false
   property bool cryptoStarted: false
+  // Encrypted notes are not decrypted yet: hide editing/search/footer and
+  // show a LOCKED screen with an Unlock button instead.
+  readonly property bool isLocked: root.cryptoEnabled && !root.cryptoPlain && !root.cryptoUnlocked
   property var cryptoQueue: []
   property var cryptoWaiting: null
   property int cryptoReqSeq: 0
@@ -392,8 +395,10 @@ Item {
     root.ensureCrypto(function() {
       root.cryptoSend({ op: "ping" }, function(res) {
         root.cryptoUnlocked = !!res.unlocked || root.cryptoPlain
-        if (!root.cryptoUnlocked) root.promptPassword()
-        else root.reloadNotes()
+        if (root.cryptoUnlocked) root.reloadNotes()
+        else Qt.callLater(function() { if (lockedView.visible) lockedView.forceActiveFocus() })
+        // Encrypted + locked: keep the dialog on the LOCKED view; the Unlock
+        // button opens the password prompt instead of auto-popping it.
       })
     })
 
@@ -811,6 +816,7 @@ Item {
           Layout.fillWidth: true
           Layout.fillHeight: true
           spacing: Style.spacing.panelGap
+          visible: !root.isLocked
 
           Item {
             Layout.preferredWidth: root.listPaneWidth
@@ -1208,6 +1214,57 @@ Item {
         }
       }
 
+      // Locked screen (encryption on, key not in memory): replace the editor
+      // pane with a LOCKED notice + Unlock so nothing hints at the content.
+      Item {
+        id: lockedView
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        visible: root.isLocked
+        activeFocusOnTab: true
+
+        Keys.priority: Keys.BeforeItem
+        Keys.onPressed: function(event) {
+          if (root.modalKey(event)) return
+          if (event.key === Qt.Key_Escape) {
+            root.dismiss()
+            event.accepted = true
+          }
+        }
+
+        ColumnLayout {
+          anchors.centerIn: parent
+          spacing: Style.spacing.lg
+          Layout.alignment: Qt.AlignHCenter
+
+          Text {
+            Layout.alignment: Qt.AlignHCenter
+            text: "LOCKED"
+            color: Qt.darker(root.foreground, 1.5)
+            font.family: root.fontFamily
+            font.pixelSize: Style.space(64)
+            font.bold: true
+          }
+
+          Text {
+            Layout.alignment: Qt.AlignHCenter
+            text: "Your notes are encrypted. Unlock to read or write them."
+            color: Qt.darker(root.foreground, 1.7)
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+          }
+
+          Button {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: Style.spacing.sm
+            text: "Unlock"
+            fontFamily: root.fontFamily
+            active: true
+            onClicked: root.promptPassword()
+          }
+        }
+      }
+
       RowLayout {
         Layout.fillWidth: true
         spacing: Style.spacing.controlGap
@@ -1257,13 +1314,14 @@ Item {
         Button {
           text: "New"
           fontFamily: root.fontFamily
-          visible: root.editingFile !== ""
+          visible: root.editingFile !== "" && !root.isLocked
           onClicked: root.startNewNote()
         }
 
         Button {
           text: "Close"
           fontFamily: root.fontFamily
+          visible: !root.isLocked
           onClicked: root.dismiss()
         }
 
@@ -1271,6 +1329,7 @@ Item {
           text: "Save"
           fontFamily: root.fontFamily
           active: true
+          visible: !root.isLocked
           onClicked: root.saveAndClose()
         }
       }
