@@ -1269,6 +1269,15 @@ Item {
         Layout.fillWidth: true
         spacing: Style.spacing.controlGap
 
+        Text {
+          Layout.preferredWidth: implicitWidth
+          text: "v" + ((root.manifest && root.manifest.version) || "")
+          color: Qt.darker(root.foreground, 1.8)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          verticalAlignment: Text.AlignVCenter
+        }
+
         Button {
           text: "?"
           fontFamily: root.fontFamily
