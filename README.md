@@ -77,7 +77,8 @@ omarchy plugin enable ghpo.quicknote --section center --after omarchy.clock
 
 - The `?` button in the bottom bar opens an in-dialog help overlay explaining
   the shortcuts and how `#tag` categorization works, with an embedded MIDI
-  (Darude - Sandstorm) synthesized and played via timidity while it is open.
+  (Darude - Sandstorm) synthesized and played via timidity with the
+  FluidR3 GM soundfont while it is open.
 
 ## Settings
 
