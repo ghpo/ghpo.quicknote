@@ -38,9 +38,25 @@ pull_remote() {
 }
 push_local() {
   git add -A
-  git diff --cached --quiet 2>/dev/null || git commit -q -m "notes $(date +%F_%T)" 2>/dev/null || err="commit failed"
+  local changed=0
+  git diff --cached --quiet 2>/dev/null || changed=1
+  if (( changed )); then
+    git commit -q -m "notes $(date +%F_%T)" 2>/dev/null || { err="commit failed"; return; }
+  fi
   if git remote get-url origin >/dev/null 2>&1; then
-    git push -q origin "$BR" 2>/dev/null || err="push failed (SSH/auth?)"
+    if git rev-parse --verify HEAD >/dev/null 2>&1; then
+      # First push of a fresh branch needs an explicit upstream.
+      local upstream=0
+      git rev-parse -q --verify "refs/remotes/origin/$BR" >/dev/null 2>&1 && upstream=1
+      if (( upstream )); then
+        git push -q origin "$BR" 2>/dev/null || err="push failed (SSH/auth?)"
+      else
+        git push -q -u origin "$BR" 2>/dev/null || err="push failed (SSH/auth?)"
+      fi
+    else
+      # No commits at all (nothing to push) — not an error.
+      err="nothing to sync yet (no notes/seal)"
+    fi
   fi
 }
 

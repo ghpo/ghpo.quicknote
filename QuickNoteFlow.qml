@@ -204,6 +204,35 @@ Item {
     root.reloadNotes()
   }
 
+  // Backup the .quicknote-seal (salt + verification blob) — needed to unlock
+  // the same notes on another machine. Not a secret, but losing it is annoying.
+  function exportSeal() {
+    if (sealProc.running) return
+    var seal = root.expandedNotesDir() + "/.quicknote-seal"
+    var cmd = "dest=$(omarchy-file-select --title 'Backup .quicknote-seal' --directory 2>/dev/null) && "
+      + "[[ -n $dest && -f " + Util.shellQuote(seal) + " ]] && "
+      + "cp " + Util.shellQuote(seal) + " \"$dest/quicknote-seal\" && echo \"$dest\""
+    sealProc.command = ["bash", "-lc", cmd]
+    sealProc.running = true
+  }
+
+  function onSealExported(out) {
+    var dest = String(out || "").trim()
+    if (dest) {
+      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+        "Seal backed up", dest + "/quicknote-seal"])
+    } else {
+      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+        "Export cancelled", "Nothing was saved"])
+    }
+  }
+
+  function expandedNotesDir() {
+    var d = root.notesDir
+    if (d.indexOf("~") === 0) return root.home + d.slice(1)
+    return d
+  }
+
   function open(payloadJson) {
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
@@ -557,6 +586,16 @@ Item {
     id: gitProc
     command: []
     onExited: root.onGitDone(exitCode)
+  }
+
+  // Seal backup helper (file chooser -> copy).
+  Process {
+    id: sealProc
+    command: []
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.onSealExported(text)
+    }
   }
 
   Timer {
@@ -1036,9 +1075,17 @@ Item {
         Button {
           text: "Lock"
           fontFamily: root.fontFamily
-          visible: root.cryptoEnabled
+          visible: root.cryptoEnabled && root.cryptoUnlocked
           tooltipText: "Forget the encryption key (asks for the password again)"
           onClicked: root.lockCrypto()
+        }
+
+        Button {
+          text: "Seal"
+          fontFamily: root.fontFamily
+          visible: root.cryptoEnabled
+          tooltipText: "Back up the .quicknote-seal (needed to unlock on other machines)"
+          onClicked: root.exportSeal()
         }
 
         Button {
