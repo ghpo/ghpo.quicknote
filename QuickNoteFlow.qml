@@ -59,16 +59,6 @@ Item {
   }
   readonly property string quicknoteScript: root.sourceDir + "/quicknote.sh"
 
-  // Private 0700 runtime dir for note/query/clipboard payload files, so
-  // private content never sits in world-readable /tmp.
-  readonly property string payloadDir: (Quickshell.env("XDG_RUNTIME_DIR") || root.home + "/.local/state") + "/omarchy-quicknote"
-
-  Component.onCompleted: {
-    Quickshell.execDetached(["bash", "-lc",
-      "mkdir -p " + Util.shellQuote(root.payloadDir)
-      + " && chmod 700 " + Util.shellQuote(root.payloadDir)])
-  }
-
   function scriptCommand(args) {
     // setsid puts the helper in its own session/process group so a watchdog
     // TERM/KILL on it never bleeds into the shell's own process group.
@@ -138,10 +128,9 @@ Item {
       root.reloadNotes()
       return
     }
-    var qpath = root.writePayload(q)
-    Qt.callLater(function() {
-      root.runNotes(["search", "--query-file", qpath, String(root.listLimit)])
-    })
+    // Query travels on stdin (NUL-terminated), never in argv.
+    notesProc.payload = q
+    root.runNotes(["search", String(root.listLimit)])
   }
 
   function applyFilter() {
@@ -208,13 +197,10 @@ Item {
 
   function copyText(text) {
     if (!text) return
-    // Copy via wl-copy reading a temp file, so the note body never lands in
-    // the child process argv.
-    var path = root.writePayload(text)
-    Qt.callLater(function() {
-      Quickshell.execDetached(["bash", "-lc",
-        "wl-copy < " + Util.shellQuote(path) + "; rm -f " + Util.shellQuote(path)])
-    })
+    // Copy via the helper (stdin -> wl-copy): no temp files, no argv content.
+    copyProc.command = root.scriptCommand(["copy"])
+    copyProc.payload = text
+    copyProc.running = true
   }
 
   function openIndex(index) {
@@ -260,18 +246,11 @@ Item {
     root.pendingDeletePath = ""
     if (!path) return
 
-    Quickshell.execDetached(root.scriptCommand(["delete", path]))
-    if (root.editingFile === path) root.startNewNote()
-
-    // Remove from the model directly (optimistic) so the list stays in sync
-    // without racing the detached rm.
-    for (var i = 0; i < notesModel.count; i++) {
-      if (notesModel.get(i).path === path) {
-        notesModel.remove(i)
-        break
-      }
-    }
-    noteList.currentIndex = -1
+    // Supervised: only refresh after the helper confirms deletion.
+    mutationProc.command = root.scriptCommand(["delete", path.split("/").pop()])
+    mutationProc.payload = ""
+    mutationProc.kind = "delete"
+    mutationProc.running = true
   }
 
   // While the delete confirm is open, key events go to the modal.
@@ -336,45 +315,53 @@ Item {
       return
     }
 
-    var args = ["save", "--stdin-file", root.writePayload(text)]
-    if (root.editingFile) args.push("--file", root.editingFile)
-    // Defer one tick so the atomic temp-file write lands before the helper runs.
-    Qt.callLater(function() {
-      Quickshell.execDetached(root.scriptCommand(args))
-    })
-    Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-      "Nota rápida salva", "Sua nota foi salva em " + root.notesDir])
-    root.dismiss()
+    // Supervised: wait for the helper's exit before reporting + refreshing.
+    var args = ["save"]
+    if (root.editingFile) args.push("--edit", root.editingFile.split("/").pop())
+    mutationProc.command = root.scriptCommand(args)
+    mutationProc.payload = text
+    mutationProc.kind = "save"
+    mutationProc.running = true
   }
 
-  // A unique temp path inside the private payload dir for carrying note bodies
-  // / queries out of argv (private content should never appear in
-  // /proc/<pid>/cmdline).
-  function tempPayloadPath() {
-    return root.payloadDir + "/payload-"
-      + new Date().getTime() + "-" + Math.floor(Math.random() * 1000000) + ".txt"
-  }
-
-  function writePayload(text) {
-    var path = root.tempPayloadPath()
-    payloadWriter.path = path
-    payloadWriter.setText(String(text || ""))
-    return path
+  // Called when a supervised save/delete finishes.
+  function onMutationFinished(exitCode) {
+    var kind = mutationProc.kind
+    mutationProc.kind = ""
+    if (kind === "save") {
+      if (exitCode === 0) {
+        Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+          "Nota rápida salva", "Sua nota foi salva em " + root.notesDir])
+        root.dismiss()
+        root.reloadNotes()
+      } else {
+        Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+          "Erro ao salvar", "O helper falhou (código " + exitCode + ")"])
+      }
+    } else if (kind === "delete") {
+      if (exitCode === 0) {
+        if (root.editingFile === root.pendingDeletePath) root.startNewNote()
+        root.reloadNotes()
+      } else {
+        Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+          "Erro ao apagar", "O helper falhou (código " + exitCode + ")"])
+      }
+    }
   }
 
   ListModel { id: notesModel }
 
-  // Writes note bodies / search queries to temp files so the helper never
-  // receives private content in its argv.
-  FileView {
-    id: payloadWriter
-    atomicWrites: true
-    printErrors: false
-  }
-
   Process {
     id: notesProc
     command: root.scriptCommand(["list", "50"])
+    stdinEnabled: true
+    property var payload: undefined
+    onStarted: {
+      if (notesProc.payload !== undefined) {
+        notesProc.write(String(notesProc.payload) + "\u0000")
+        notesProc.payload = undefined
+      }
+    }
     onExited: {
       notesWatchdog.stop()
       killTimer.stop()
@@ -385,16 +372,18 @@ Item {
     }
   }
 
-  // Watchdog: a list/search that stalls past its budget gets TERM, then KILL,
-  // so a stuck helper can't leave a live subprocess behind.
+  // Watchdog: a list/search that stalls past its budget gets a TERM, then
+  // KILL, signalled to the helper's whole process group (negative pid, valid
+  // because the helper runs under setsid as a session/group leader).
   Timer {
     id: notesWatchdog
     interval: 15000
     repeat: false
     onTriggered: {
       if (!notesProc.running) return
-      console.warn("quicknote: notesProc watchdog TERM on stalled process")
-      notesProc.signal(15)   // SIGTERM
+      var pid = Number(notesProc.processId)
+      console.warn("quicknote: notesProc watchdog TERM group", pid)
+      if (pid > 0) notesProc.signal(-pid)
       killTimer.start()
     }
   }
@@ -405,9 +394,39 @@ Item {
     repeat: false
     onTriggered: {
       if (!notesProc.running) return
-      console.warn("quicknote: notesProc watchdog KILL")
-      notesProc.signal(9)    // SIGKILL
+      var pid = Number(notesProc.processId)
+      console.warn("quicknote: notesProc watchdog KILL group", pid)
+      if (pid > 0) notesProc.signal(-pid)
       notesProc.running = false
+    }
+  }
+
+  // Supervised save/delete helper: stdin carries the note (NUL-terminated),
+  // exit status drives success/failure handling.
+  Process {
+    id: mutationProc
+    stdinEnabled: true
+    property var payload: undefined
+    property string kind: ""
+    onStarted: {
+      if (mutationProc.payload !== undefined) {
+        mutationProc.write(String(mutationProc.payload) + "\u0000")
+        mutationProc.payload = undefined
+      }
+    }
+    onExited: root.onMutationFinished(exitCode)
+  }
+
+  // Clipboard helper: note text over stdin -> wl-copy, no temp files.
+  Process {
+    id: copyProc
+    stdinEnabled: true
+    property var payload: undefined
+    onStarted: {
+      if (copyProc.payload !== undefined) {
+        copyProc.write(String(copyProc.payload) + "\u0000")
+        copyProc.payload = undefined
+      }
     }
   }
 

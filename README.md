@@ -98,8 +98,9 @@ Example:
 - `manifest.json` — plugin manifest (bar-widget + overlay)
 - `QuickNoteButton.qml` — the bar button
 - `QuickNoteFlow.qml` — the note dialog overlay (editor + recent-notes list)
-- `quicknote.sh` — storage helper: `save`, `list`, `search`, `view`, `delete` (JSON)
-- `save-note.sh` — compatibility wrapper for `quicknote.sh save`
+- `quicknote.sh` — wrapper that builds and execs the storage helper
+- `save-note.sh` — argv-compatible wrapper (pipes the note to stdin)
+- `quicknote-helper.c` — audited C storage helper: fd-based no-follow access, bounded IO, JSON output
 - `LICENSE` — MIT
 - `preview.png` — marketplace preview image (the note dialog)
 - `demo.gif` — animated demo of the neon-border editor
