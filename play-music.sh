@@ -15,8 +15,13 @@ b64="$dir/sandstorm.mid.b64"
 bin="$dir/quicknote-music"
 tmp="${XDG_RUNTIME_DIR:-/tmp}/omarchy-quicknote-music.mid"
 
-if [[ ! -x $bin ]] && command -v cc >/dev/null 2>&1; then
-  cc -O2 -o "$bin" "$dir/quicknote-music.c" -lasound -lm 2>/dev/null || rm -f "$bin"
+if [[ ! -x $bin ]]; then
+  for C in cc gcc clang; do
+    if command -v "$C" >/dev/null 2>&1; then
+      "$C" -O2 -o "$bin" "$dir/quicknote-music.c" -lasound -lm 2>/dev/null && break
+      rm -f "$bin"
+    fi
+  done
 fi
 
 base64 -d -- "$b64" > "$tmp" 2>/dev/null
