@@ -32,6 +32,8 @@ Item {
   property string searchText: ""
   property bool cursorActive: false
   property int listLimit: 50
+  property int maxNoteChars: 50000
+  property int maxQueryChars: 200
 
   property color background: Color.menu.background
   property color foreground: Color.menu.text
@@ -64,8 +66,15 @@ Item {
   function open(payloadJson) {
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
-    if (payload.fontFamily) root.fontFamily = payload.fontFamily
-    if (payload.notesDir) root.notesDir = payload.notesDir
+    if (payload.fontFamily) {
+      var fam = String(payload.fontFamily)
+      if (fam.length <= 64) root.fontFamily = fam
+    }
+    if (payload.notesDir) {
+      var dir = String(payload.notesDir)
+      if (dir.length > 0 && dir.length <= 1024 && dir.indexOf("\u0000") === -1)
+        root.notesDir = dir
+    }
 
     root.opened = true
     root.startNewNote()
@@ -101,6 +110,7 @@ Item {
   function runNotes(args) {
     notesProc.running = false
     notesProc.command = root.scriptCommand(args)
+    notesWatchdog.restart()
     notesProc.running = true
   }
 
@@ -109,7 +119,16 @@ Item {
   }
 
   function runSearch(query) {
-    root.runNotes(["search", query, String(root.listLimit)])
+    var q = String(query || "")
+    if (q.length > root.maxQueryChars) q = q.slice(0, root.maxQueryChars)
+    if (!q) {
+      root.reloadNotes()
+      return
+    }
+    var qpath = root.writePayload(q)
+    Qt.callLater(function() {
+      root.runNotes(["search", "--query-file", qpath, String(root.listLimit)])
+    })
   }
 
   function applyFilter() {
@@ -165,7 +184,13 @@ Item {
 
   function copyText(text) {
     if (!text) return
-    Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-clipboard-paste-text", "--copy-only", text])
+    // Copy via wl-copy reading a temp file, so the note body never lands in
+    // the child process argv.
+    var path = root.writePayload(text)
+    Qt.callLater(function() {
+      Quickshell.execDetached(["bash", "-lc",
+        "wl-copy < " + Util.shellQuote(path) + "; rm -f " + Util.shellQuote(path)])
+    })
   }
 
   function openIndex(index) {
@@ -281,23 +306,67 @@ Item {
       root.dismiss()
       return
     }
+    if (text.length > root.maxNoteChars) {
+      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+        "Nota muito longa", "Máximo de " + root.maxNoteChars + " caracteres"])
+      return
+    }
 
-    var args = ["save"]
+    var args = ["save", "--stdin-file", root.writePayload(text)]
     if (root.editingFile) args.push("--file", root.editingFile)
-    args.push(text)
-    Quickshell.execDetached(root.scriptCommand(args))
+    // Defer one tick so the atomic temp-file write lands before the helper runs.
+    Qt.callLater(function() {
+      Quickshell.execDetached(root.scriptCommand(args))
+    })
     Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send", "Nota rápida salva", text.split("\n")[0]])
     root.dismiss()
   }
 
+  // A unique, unguessable temp path for carrying note bodies / queries out of
+  // argv (private content should never appear in /proc/<pid>/cmdline).
+  function tempPayloadPath() {
+    return "/tmp/omarchy-quicknote-"
+      + new Date().getTime() + "-" + Math.floor(Math.random() * 1000000) + ".txt"
+  }
+
+  function writePayload(text) {
+    var path = root.tempPayloadPath()
+    payloadWriter.path = path
+    payloadWriter.setText(String(text || ""))
+    return path
+  }
+
   ListModel { id: notesModel }
+
+  // Writes note bodies / search queries to temp files so the helper never
+  // receives private content in its argv.
+  FileView {
+    id: payloadWriter
+    atomicWrites: true
+    printErrors: false
+  }
 
   Process {
     id: notesProc
     command: root.scriptCommand(["list", "50"])
+    onExited: notesWatchdog.stop()
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.applyNotesOutput(text)
+    }
+  }
+
+  // Watchdog: a list/search that stalls past its budget gets force-stopped so
+  // a stuck helper can't leave a live subprocess behind.
+  Timer {
+    id: notesWatchdog
+    interval: 15000
+    repeat: false
+    onTriggered: {
+      if (notesProc.running) {
+        notesProc.running = false
+        console.warn("quicknote: notesProc watchdog stopped a stalled process")
+      }
     }
   }
 
@@ -463,6 +532,7 @@ Item {
                   anchors.leftMargin: Style.space(10)
                   anchors.rightMargin: Style.space(34)
                   anchors.topMargin: Style.spacing.sm
+                  textFormat: Text.PlainText
                   text: row.title || "Sem título"
                   color: hasCursor ? root.selectedText : root.foreground
                   font.family: root.fontFamily
@@ -497,6 +567,7 @@ Item {
 
                     delegate: Text {
                       required property string modelData
+                      textFormat: Text.PlainText
                       text: modelData
                       color: hasCursor ? root.selectedText : root.tagColor
                       font.family: root.fontFamily
@@ -515,6 +586,7 @@ Item {
 
                   Text {
                     visible: root.tagCount(row.tags) > 3
+                    textFormat: Text.PlainText
                     text: "+" + (root.tagCount(row.tags) - 3)
                     color: hasCursor ? root.selectedText : Qt.darker(root.foreground, 1.4)
                     font.family: root.fontFamily
@@ -524,6 +596,7 @@ Item {
                   Item { Layout.fillWidth: true }
 
                   Text {
+                    textFormat: Text.PlainText
                     text: row.stamp
                     color: hasCursor ? root.selectedText : Qt.darker(root.foreground, 1.5)
                     font.family: root.fontFamily
@@ -561,6 +634,7 @@ Item {
 
               Text {
                 width: parent.width
+                textFormat: Text.PlainText
                 text: root.searchText ? "Sem resultados para \"" + root.searchText + "\"" : "Sem notas ainda"
                 color: Qt.darker(root.foreground, 1.5)
                 font.family: root.fontFamily
