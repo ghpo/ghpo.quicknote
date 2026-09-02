@@ -19,6 +19,10 @@ right:
 
 ![Quick note dialog](preview.png)
 
+The editor has an animated neon border:
+
+![Demo](demo.gif)
+
 Delete asks for confirmation:
 
 ![Delete confirmation](screenshot-delete.png)
@@ -98,6 +102,7 @@ Example:
 - `save-note.sh` — compatibility wrapper for `quicknote.sh save`
 - `LICENSE` — MIT
 - `preview.png` — marketplace preview image (the note dialog)
+- `demo.gif` — animated demo of the neon-border editor
 - `screenshot-icon.png` — bar icon next to the clock
 - `screenshot-help.png` — the help overlay
 - `screenshot-delete.png` — the delete confirmation
