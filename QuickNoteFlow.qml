@@ -83,11 +83,15 @@ Item {
   }
 
   // Serialize requests to the storage daemon: one JSON request per line on
-  // stdin, one JSON response per line on stdout (SplitParser).
-  function cryptoSend(req, cb) {
+  // stdin, one JSON response per line on stdout (SplitParser). Requests with
+  // `priority` (the unlock sent from the password modal) jump the queue so a
+  // request deferred on "locked" can never starve the unlock behind it.
+  function cryptoSend(req, cb, priority) {
     root.cryptoReqSeq += 1
     req.id = root.cryptoReqSeq
-    cryptoQueue.push({ req: req, cb: cb || null })
+    var item = { req: req, cb: cb || null }
+    if (priority) cryptoQueue.unshift(item)
+    else cryptoQueue.push(item)
     root.cryptoPump()
   }
 
@@ -127,12 +131,16 @@ Item {
         if (item.cb) item.cb(res)
       }
     } else if (!res.ok && res.error === "locked") {
-      // Daemon is locked (encrypted + no key yet). Prompt, then retry once.
+      // Daemon is locked (encrypted + no key yet). Hold the request at the
+      // front of the queue and prompt, but do NOT re-send it now — re-pumping
+      // it immediately would spin: the request would be rejected again and
+      // again while any unlock queued behind it could never be sent.
       if (item.cb) item.cb(res)
       if (!root.cryptoPlain) {
-        cryptoQueue.unshift(item)   // retry the request after unlock
+        cryptoQueue.unshift(item)
         root.promptPassword()
       }
+      return
     } else {
       if (res.ok && item.req.op !== "ping") root.cryptoUnlocked = true
       if (item.cb) item.cb(res)
@@ -171,9 +179,11 @@ Item {
     if (!pw) return
     passwordField.text = ""
     root.cryptoUnlocked = false
+    // Priority: jump ahead of any request already deferred on "locked", or
+    // the unlock would never be sent.
     root.cryptoSend({ op: "unlock", password: pw }, function(res) {
       if (res.ok) root.reloadNotes()
-    })
+    }, true)
   }
 
   function openChangePass() {
