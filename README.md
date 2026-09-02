@@ -73,6 +73,12 @@ Place it wherever you want:
 omarchy plugin enable ghpo.quicknote --section center --after omarchy.clock
 ```
 
+### Requirements
+
+A C compiler (`cc`/`gcc`/`clang`) and the `libsodium` headers are needed to
+build the storage daemon on first use — both are standard on Arch/Omarchy. No
+other external runtime is required.
+
 ## Configuration
 
 Per-widget settings in `shell.json` (the widget's layout entry):
