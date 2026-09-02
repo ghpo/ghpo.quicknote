@@ -231,7 +231,7 @@ Item {
     if (index < 0 || index >= noteList.count) return
     var row = notesModel.get(index)
     root.pendingDeletePath = row.path
-    root.pendingDeleteTitle = row.title || "Sem título"
+    root.pendingDeleteTitle = row.title || "Untitled"
     root.deleteConfirmOpen = true
   }
 
@@ -311,7 +311,7 @@ Item {
     }
     if (text.length > root.maxNoteChars) {
       Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-        "Nota muito longa", "Máximo de " + root.maxNoteChars + " caracteres"])
+        "Note too long", "Maximum of " + root.maxNoteChars + " characters"])
       return
     }
 
@@ -331,12 +331,12 @@ Item {
     if (kind === "save") {
       if (exitCode === 0) {
         Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-          "Nota rápida salva", "Sua nota foi salva em " + root.notesDir])
+          "Quick note saved", "Your note was saved in " + root.notesDir])
         root.dismiss()
         root.reloadNotes()
       } else {
         Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-          "Erro ao salvar", "O helper falhou (código " + exitCode + ")"])
+          "Error saving", "The helper failed (code " + exitCode + ")"])
       }
     } else if (kind === "delete") {
       if (exitCode === 0) {
@@ -344,7 +344,7 @@ Item {
         root.reloadNotes()
       } else {
         Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-          "Erro ao apagar", "O helper falhou (código " + exitCode + ")"])
+          "Error deleting", "The helper failed (code " + exitCode + ")"])
       }
     }
   }
@@ -483,7 +483,7 @@ Item {
 
           Text {
             Layout.fillWidth: true
-            text: "Nota rápida"
+            text: "Quick Notes"
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.heading
@@ -593,7 +593,7 @@ Item {
                   anchors.rightMargin: Style.space(34)
                   anchors.topMargin: Style.spacing.sm
                   textFormat: Text.PlainText
-                  text: row.title || "Sem título"
+                  text: row.title || "Untitled"
                   color: hasCursor ? root.selectedText : root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.title
@@ -695,7 +695,7 @@ Item {
               Text {
                 width: parent.width
                 textFormat: Text.PlainText
-                text: root.searchText ? "Sem resultados para \"" + root.searchText + "\"" : "Sem notas ainda"
+                text: root.searchText ? "No results for \"" + root.searchText + "\"" : "No notes yet"
                 color: Qt.darker(root.foreground, 1.5)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
@@ -706,7 +706,7 @@ Item {
               Text {
                 width: parent.width
                 visible: !root.searchText
-                text: "Salve a primeira nota no editor ao lado"
+                text: "Save your first note in the editor on the right"
                 color: Qt.darker(root.foreground, 1.7)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -728,7 +728,7 @@ Item {
               TextField {
                 id: searchField
                 Layout.fillWidth: true
-                placeholderText: "Buscar notas…"
+                placeholderText: "Search notes…"
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
                 color: root.foreground
@@ -816,7 +816,7 @@ Item {
                   clip: true
 
                   text: root.note
-                  placeholderText: "Digite sua nota...  (Enter salva, Shift+Enter nova linha)"
+                  placeholderText: "Type your note...  (Enter saves, Shift+Enter new line)"
                   placeholderTextColor: Qt.darker(root.foreground, 1.6)
 
                   font.family: root.fontFamily
@@ -882,27 +882,27 @@ Item {
         Button {
           text: "?"
             fontFamily: root.fontFamily
-            tooltipText: "Como funciona"
+            tooltipText: "How it works"
             onClicked: root.openHelp()
           }
 
           Item { Layout.fillWidth: true }
 
           Button {
-            text: "Nova"
+            text: "New"
             fontFamily: root.fontFamily
             visible: root.editingFile !== ""
             onClicked: root.startNewNote()
           }
 
           Button {
-            text: "Fechar"
+            text: "Close"
             fontFamily: root.fontFamily
             onClicked: root.dismiss()
           }
 
           Button {
-            text: "Salvar"
+            text: "Save"
             fontFamily: root.fontFamily
             active: true
             onClicked: root.saveAndClose()
@@ -915,9 +915,9 @@ Item {
           anchors.fill: parent
           z: 30
           opened: root.deleteConfirmOpen
-          message: "Apagar a nota \"" + root.pendingDeleteTitle + "\"?"
-          cancelText: "Cancelar"
-          confirmText: "Apagar"
+          message: "Delete the note \"" + root.pendingDeleteTitle + "\"?"
+          cancelText: "Cancel"
+          confirmText: "Delete"
           background: root.background
           foreground: root.foreground
           scrim: Qt.rgba(0, 0, 0, 0.55)
@@ -963,7 +963,7 @@ Item {
 
               Text {
                 Layout.fillWidth: true
-                text: "Como funciona"
+                text: "How it works"
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.heading
@@ -987,20 +987,20 @@ Item {
                   font.pixelSize: Style.font.body
                   lineHeight: 1.45
                   wrapMode: Text.WordWrap
-                  text: "<b style='color:" + root.foreground + "'>Notas rápidas</b><br/><br/>" +
-                        "Escreva no editor e pressione <b>Enter</b> (ou Salvar) para salvar a nota como um arquivo .md com data/hora em ~/Documents/QuickNotes/. <b>Shift+Enter</b> faz nova linha.<br/><br/>" +
-                        "<b style='color:" + root.foreground + "'>Painel esquerdo — notas recentes</b><br/>" +
-                        "· <b>Enter</b> — carrega a nota no editor (Salvar sobrescreve)<br/>" +
-                        "· <b>Alt+Enter</b> — copia a nota<br/>" +
-                        "· <b>Ctrl+Enter</b> — abre a nota no seu editor de texto<br/>" +
-                        "· <b>Delete</b> (ou a lixeira) — apaga, com confirmação<br/><br/>" +
-                        "<b style='color:" + root.foreground + "'>Busca</b><br/>" +
-                        "O campo acima do editor filtra por texto ou por #tag. <b>Esc</b> limpa.<br/><br/>" +
-                        "<b style='color:" + root.foreground + "'>Categorizar com # (tags)</b><br/>" +
-                        "Escreva #palavra no texto da nota (ex.: #ideia, #compras). A palavra vira uma tag automaticamente, aparece em azul na lista e serve de filtro: clique nela ou digite-a na busca para ver só as notas com essa tag.<br/><br/>" +
-                        "<b style='color:" + root.foreground + "'>Atalhos</b><br/>" +
-                        "· <b>Esc</b> — fecha sem salvar<br/>" +
-                        "· <b>Shift+Enter</b> — nova linha"
+                  text: "<b style='color:" + root.foreground + "'>Quick Notes</b><br/><br/>" +
+                        "Type in the editor and press <b>Enter</b> (or Save) to save the note as a timestamped .md file in ~/Documents/QuickNotes/. <b>Shift+Enter</b> starts a new line.<br/><br/>" +
+                        "<b style='color:" + root.foreground + "'>Left panel — recent notes</b><br/>" +
+                        "· <b>Enter</b> — loads the note into the editor (Save overwrites)<br/>" +
+                        "· <b>Alt+Enter</b> — copies the note<br/>" +
+                        "· <b>Ctrl+Enter</b> — opens the note in your text editor<br/>" +
+                        "· <b>Delete</b> (or the trash icon) — deletes, with confirmation<br/><br/>" +
+                        "<b style='color:" + root.foreground + "'>Search</b><br/>" +
+                        "The field above the editor filters by text or by #tag. <b>Esc</b> clears it.<br/><br/>" +
+                        "<b style='color:" + root.foreground + "'>Categorizing with # (tags)</b><br/>" +
+                        "Write #word anywhere in the note text (e.g. #idea, #shopping). The word becomes a tag automatically, shows in blue in the list, and works as a filter: click it or type it in the search to see only the notes with that tag.<br/><br/>" +
+                        "<b style='color:" + root.foreground + "'>Shortcuts</b><br/>" +
+                        "· <b>Esc</b> — closes without saving<br/>" +
+                        "· <b>Shift+Enter</b> — new line"
                 }
               }
 
@@ -1008,8 +1008,15 @@ Item {
                 Layout.fillWidth: true
                 Layout.topMargin: Style.spacing.sm
                 Item { Layout.fillWidth: true }
+                Text {
+                  text: "X: ghpo2k - 2026"
+                  color: Util.alpha(root.foreground, 0.5)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  verticalAlignment: Text.AlignVCenter
+                }
                 Button {
-                  text: "Fechar"
+                  text: "Close"
                   fontFamily: root.fontFamily
                   active: true
                   onClicked: root.closeHelp()
