@@ -83,16 +83,50 @@ emit_note() {
     '{path:$path, file:$file, title:$title, content:$content, stamp:$stamp, mtime:$mtime, tags:$tags}'
 }
 
+# Read a bounded carrier file (note/query payload). Requires a user-owned
+# regular file; the payload is produced inside a 0700 runtime dir, so this
+# re-check is defense in depth. Returns 1 (and leaves the file) if unsafe.
+read_carrier() {
+  local file="$1" limit="$2"
+  if ! is_safe_file "$file"; then
+    rm -f -- "$file" 2>/dev/null || true
+    return 1
+  fi
+  head -c "$limit" "$file" 2>/dev/null || true
+  rm -f -- "$file" 2>/dev/null || true
+}
+
+# Enumerate notes, NUL-delimited and capped at the producer.
+enumerate_notes() {
+  find -P "$DIR" -maxdepth 1 -name '*.md' -type f ! -type l -uid "$UID_NOW" -print0 \
+    | head -z -n "$MAX_FILES"
+}
+
+# Sort the capped path list by mtime, newest first. Paths are carried as
+# $'\t'-separated records so a pathname cannot inject extra fields.
+sort_by_mtime() {
+  local -a recs=()
+  local f
+  while IFS= read -r -d '' f; do
+    [[ -n $f ]] || continue
+    recs+=("$(stat -c '%Y' "$f" 2>/dev/null || echo 0)"$'\t'"$f")
+  done
+  local IFS=$'\n'
+  mapfile -t recs < <(printf '%s\n' "${recs[@]}" | sort -rn | cut -f2- )
+  printf '%s\0' "${recs[@]}"
+}
+
 list_notes() {
   local limit="${1:-50}"
   [[ $limit =~ ^[0-9]+$ ]] || limit=50
   (( limit > MAX_FILES )) && limit=$MAX_FILES
 
   local -a files=()
-  while IFS= read -r f; do
+  while IFS= read -r -d '' f; do
     [[ -n $f ]] || continue
     files+=("$f")
-  done < <(find -P "$DIR" -maxdepth 1 -name '*.md' -type f ! -type l -uid "$UID_NOW" -printf '%T@ %p\n' | sort -rn | cut -d' ' -f2- | head -n "$limit")
+    (( ${#files[@]} >= MAX_FILES )) && break
+  done < <(enumerate_notes)
 
   local i
   for i in "${files[@]}"; do
@@ -112,8 +146,7 @@ search_notes() {
   (( limit > MAX_FILES )) && limit=$MAX_FILES
 
   if [[ -n $query_file ]]; then
-    q=$(head -c "$MAX_QUERY_BYTES" "$query_file" 2>/dev/null || true)
-    rm -f -- "$query_file"
+    q=$(read_carrier "$query_file" "$MAX_QUERY_BYTES") || q=""
   fi
   [[ ${#q} -gt $MAX_QUERY_BYTES ]] && q="${q:0:$MAX_QUERY_BYTES}"
 
@@ -123,10 +156,11 @@ search_notes() {
   fi
 
   local -a files=()
-  while IFS= read -r f; do
+  while IFS= read -r -d '' f; do
     [[ -n $f ]] || continue
     files+=("$f")
-  done < <(find -P "$DIR" -maxdepth 1 -name '*.md' -type f ! -type l -uid "$UID_NOW" -printf '%p\n')
+    (( ${#files[@]} >= MAX_FILES )) && break
+  done < <(enumerate_notes)
 
   local -a out=()
   local i
@@ -136,10 +170,16 @@ search_notes() {
     fi
   done
 
-  local j
-  for j in "${out[@]}"; do
-    printf '%s %s\n' "$(stat -c '%Y' "$j" 2>/dev/null || echo 0)" "$j"
-  done | sort -rn | cut -d' ' -f2- | head -n "$limit" | while IFS= read -r k; do
+  local -a sorted=()
+  local f2
+  for f2 in "${out[@]}"; do
+    sorted+=("$(stat -c '%Y' "$f2" 2>/dev/null || echo 0)"$'\t'"$f2")
+  done
+  local IFS=$'\n'
+  mapfile -t sorted < <(printf '%s\n' "${sorted[@]}" | sort -rn | cut -f2- | head -n "$limit")
+
+  local k
+  for k in "${sorted[@]}"; do
     emit_note "$k"
   done | jq -cs . 2>/dev/null | head -c "$MAX_OUTPUT_BYTES" || true
 }
@@ -156,8 +196,7 @@ save_note() {
 
   local note=""
   if [[ -n $stdin_file ]]; then
-    note=$(head -c "$MAX_NOTE_BYTES" "$stdin_file" 2>/dev/null || true)
-    rm -f -- "$stdin_file"
+    note=$(read_carrier "$stdin_file" "$MAX_NOTE_BYTES") || note=""
   else
     note="${1:-}"
     [[ ${#note} -le $MAX_NOTE_BYTES ]] || note="${note:0:$MAX_NOTE_BYTES}"

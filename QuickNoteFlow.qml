@@ -59,6 +59,16 @@ Item {
   }
   readonly property string quicknoteScript: root.sourceDir + "/quicknote.sh"
 
+  // Private 0700 runtime dir for note/query/clipboard payload files, so
+  // private content never sits in world-readable /tmp.
+  readonly property string payloadDir: (Quickshell.env("XDG_RUNTIME_DIR") || root.home + "/.local/state") + "/omarchy-quicknote"
+
+  Component.onCompleted: {
+    Quickshell.execDetached(["bash", "-lc",
+      "mkdir -p " + Util.shellQuote(root.payloadDir)
+      + " && chmod 700 " + Util.shellQuote(root.payloadDir)])
+  }
+
   function scriptCommand(args) {
     return [root.quicknoteScript, "--dir", root.notesDir].concat(args)
   }
@@ -109,6 +119,7 @@ Item {
 
   function runNotes(args) {
     notesProc.running = false
+    killTimer.stop()
     notesProc.command = root.scriptCommand(args)
     notesWatchdog.restart()
     notesProc.running = true
@@ -149,16 +160,27 @@ Item {
     }
 
     notesModel.clear()
-    for (var i = 0; i < entries.length; i++) {
-      var e = entries[i] || {}
-      notesModel.append({
-        path: e.path || "",
-        file: e.file || "",
-        title: e.title || "",
-        content: e.content || "",
-        stamp: e.stamp || "",
-        tags: Array.isArray(e.tags) ? e.tags : []
-      })
+    // Bounded, schema-validated ingestion: ignore anything that isn't a plain
+    // object, cap every field length, cap tag count, and never append more
+    // than listLimit rows.
+    var max = Math.min(entries.length, root.listLimit)
+    for (var i = 0; i < max; i++) {
+      var e = entries[i]
+      if (!e || typeof e !== "object") continue
+      var path = String(e.path || "").slice(0, 1024)
+      if (!path) continue
+      var file = String(e.file || "").slice(0, 256)
+      var title = String(e.title || "").slice(0, 512)
+      var content = String(e.content || "").slice(0, 131072)
+      var stamp = String(e.stamp || "").slice(0, 64)
+      var tags = []
+      if (Array.isArray(e.tags)) {
+        for (var t = 0; t < e.tags.length && t < 6; t++) {
+          var tg = String(e.tags[t]).slice(0, 128)
+          if (tg) tags.push(tg)
+        }
+      }
+      notesModel.append({ path: path, file: file, title: title, content: content, stamp: stamp, tags: tags })
     }
 
     noteList.currentIndex = noteList.count > 0 ? 0 : -1
@@ -318,14 +340,16 @@ Item {
     Qt.callLater(function() {
       Quickshell.execDetached(root.scriptCommand(args))
     })
-    Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send", "Nota rápida salva", text.split("\n")[0]])
+    Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+      "Nota rápida salva", "Sua nota foi salva em " + root.notesDir])
     root.dismiss()
   }
 
-  // A unique, unguessable temp path for carrying note bodies / queries out of
-  // argv (private content should never appear in /proc/<pid>/cmdline).
+  // A unique temp path inside the private payload dir for carrying note bodies
+  // / queries out of argv (private content should never appear in
+  // /proc/<pid>/cmdline).
   function tempPayloadPath() {
-    return "/tmp/omarchy-quicknote-"
+    return root.payloadDir + "/payload-"
       + new Date().getTime() + "-" + Math.floor(Math.random() * 1000000) + ".txt"
   }
 
@@ -349,24 +373,39 @@ Item {
   Process {
     id: notesProc
     command: root.scriptCommand(["list", "50"])
-    onExited: notesWatchdog.stop()
+    onExited: {
+      notesWatchdog.stop()
+      killTimer.stop()
+    }
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.applyNotesOutput(text)
     }
   }
 
-  // Watchdog: a list/search that stalls past its budget gets force-stopped so
-  // a stuck helper can't leave a live subprocess behind.
+  // Watchdog: a list/search that stalls past its budget gets TERM, then KILL,
+  // so a stuck helper can't leave a live subprocess behind.
   Timer {
     id: notesWatchdog
     interval: 15000
     repeat: false
     onTriggered: {
-      if (notesProc.running) {
-        notesProc.running = false
-        console.warn("quicknote: notesProc watchdog stopped a stalled process")
-      }
+      if (!notesProc.running) return
+      console.warn("quicknote: notesProc watchdog TERM on stalled process")
+      notesProc.signal(15)   // SIGTERM
+      killTimer.start()
+    }
+  }
+
+  Timer {
+    id: killTimer
+    interval: 2000
+    repeat: false
+    onTriggered: {
+      if (!notesProc.running) return
+      console.warn("quicknote: notesProc watchdog KILL")
+      notesProc.signal(9)    // SIGKILL
+      notesProc.running = false
     }
   }
 
