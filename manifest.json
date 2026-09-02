@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "ghpo.quicknote",
   "name": "Quick Note",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "author": "ghpo",
-  "description": "Quick note button + dialog that saves notes to ~/Documents/QuickNotes/",
+  "description": "Quick note button + dialog that saves notes to ~/Documents/QuickNotes/, with recent-notes list, search, #tags, delete with confirmation and an in-dialog help guide",
   "kinds": [
     "bar-widget",
     "overlay"

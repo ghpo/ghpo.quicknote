@@ -1,16 +1,10 @@
 #!/bin/bash
 
-# Save a quick note to $NOTES_DIR (default ~/Documents/QuickNotes) as a
-# timestamped markdown file.
+# Save a quick note to the notes dir as a timestamped markdown file.
+# Compatibility wrapper — the storage logic lives in quicknote.sh.
 # Usage: save-note.sh "note text"
 
 set -euo pipefail
 
-DIR="${NOTES_DIR:-$HOME/Documents/QuickNotes}"
-note="${1:-}"
-
-[[ -n ${note// /} ]] || exit 0
-
-mkdir -p "$DIR"
-stamp=$(date +%Y-%m-%d_%H-%M-%S)
-printf '%s\n' "$note" > "$DIR/$stamp.md"
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$dir/quicknote.sh" save "$@"

@@ -5,7 +5,27 @@ dialog for a fast note; pressing Enter (or Salvar) saves it to
 `~/Documents/QuickNotes/` as a timestamped markdown file. Esc (or Fechar)
 discards.
 
-![Preview](preview.png)
+The dialog also shows your recent notes, lets you search them, and reads
+`#tags` from note text so you can filter by tag.
+
+## Screenshots
+
+The note button lives in the bar, right next to the clock:
+
+![Icon next to the clock](screenshot-icon.png)
+
+Click it to open the dialog — recent notes on the left, search + editor on the
+right:
+
+![Quick note dialog](preview.png)
+
+Delete asks for confirmation:
+
+![Delete confirmation](screenshot-delete.png)
+
+And the `?` button opens an in-dialog guide:
+
+![Help overlay](screenshot-help.png)
 
 ## Install
 
@@ -38,6 +58,22 @@ omarchy plugin enable ghpo.quicknote --section center --after omarchy.clock
 - Type the note. `Enter` saves, `Shift+Enter` inserts a newline, `Esc` closes
   without saving.
 
+- The left pane lists recent notes (newest first). Click one to load it into
+  the editor and edit it; Salvar overwrites that file. Keyboard: `↑`/`↓`
+  navigate, `Enter` loads, `Alt+Enter` copies the note, `Ctrl+Enter` opens it
+  in your editor, `Delete` asks to delete the selected note.
+
+- Delete a note with the trash icon on its row (or `Delete` in the list); a
+  confirmation dialog must be confirmed. Deleting a note that is being edited
+  resets the editor to a fresh note.
+
+- Type in the search box to filter notes by text or by `#tag` (tags are
+  detected automatically from `#word` tokens in note text). Click a tag in the
+  list to filter by it. `Esc` in the search box clears it.
+
+- The `?` button in the bottom bar opens an in-dialog help overlay explaining
+  the shortcuts and how `#tag` categorization works.
+
 ## Settings
 
 Per-widget settings in `shell.json` (the widget's layout entry):
@@ -57,10 +93,14 @@ Example:
 
 - `manifest.json` — plugin manifest (bar-widget + overlay)
 - `QuickNoteButton.qml` — the bar button
-- `QuickNoteFlow.qml` — the note dialog overlay
-- `save-note.sh` — saves the note (shipped inside the plugin)
+- `QuickNoteFlow.qml` — the note dialog overlay (editor + recent-notes list)
+- `quicknote.sh` — storage helper: `save`, `list`, `search`, `view`, `delete` (JSON)
+- `save-note.sh` — compatibility wrapper for `quicknote.sh save`
 - `LICENSE` — MIT
-- `preview.png` — marketplace preview image
+- `preview.png` — marketplace preview image (the note dialog)
+- `screenshot-icon.png` — bar icon next to the clock
+- `screenshot-help.png` — the help overlay
+- `screenshot-delete.png` — the delete confirmation
 
 The button summons the dialog through `omarchy-shell shell summon
 ghpo.quicknote`, passing the configured `notesDir` in the payload.
