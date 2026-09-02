@@ -54,6 +54,7 @@ static uid_t uid_now;
 static char dir_path[4096];
 static unsigned char key[crypto_secretbox_KEYBYTES];
 static int unlocked = 0;
+static long g_req_id = 0;
 static int plain = 0;
 
 /* ---------------------------------------------------------------- utilities */
@@ -152,6 +153,29 @@ static char *json_field_str(const char *s, const char *key, size_t *olen) {
     return NULL;
 }
 
+/* Find a top-level integer member "key":<number>. Returns 0 if absent. */
+static long json_field_int(const char *s, const char *key) {
+    size_t kl = strlen(key);
+    const char *p = s;
+    while ((p = strchr(p, '"')) != NULL) {
+        const char *ks = p + 1;
+        if (strncmp(ks, key, kl) == 0 && ks[kl] == '"') {
+            const char *after = skip_string(p);
+            while (isspace((unsigned char)*after)) after++;
+            if (*after == ':') {
+                const char *v = after + 1;
+                while (isspace((unsigned char)*v)) v++;
+                char *end = NULL;
+                long n = strtol(v, &end, 10);
+                if (end && end != v) return n;
+            }
+        }
+        p = skip_string(p);
+    }
+    return 0;
+}
+
+
 /* ---- bounded line read from stdin ---------------------------------------- */
 
 static char *read_line_bounded(void) {
@@ -178,23 +202,39 @@ static void opch(char c) { putchar(c); out_bytes++; }
 static void json_escape(const char *s, size_t n) {
     for (size_t i = 0; i < n; i++) {
         unsigned char c = (unsigned char)s[i];
-        switch (c) {
-            case '"': oput("\\\""); break;
-            case '\\': oput("\\\\"); break;
-            case '\n': oput("\\n"); break;
-            case '\r': oput("\\r"); break;
-            case '\t': oput("\\t"); break;
-            default:
-                if (c < 0x20) { char b[8]; snprintf(b, sizeof b, "\\u%04x", c); oput(b); }
-                else opch((char)c);
+        if (c < 0x80) {
+            switch (c) {
+                case '"': oput("\\\""); break;
+                case '\\': oput("\\\\"); break;
+                case '\n': oput("\\n"); break;
+                case '\r': oput("\\r"); break;
+                case '\t': oput("\\t"); break;
+                default:
+                    if (c < 0x20) { char b[8]; snprintf(b, sizeof b, "\\u%04x", c); oput(b); }
+                    else opch((char)c);
+            }
+            continue;
         }
+        /* multi-byte UTF-8: emit only well-formed sequences, else U+FFFD */
+        int len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 0;
+        if (len && i + len <= n) {
+            int ok = 1;
+            for (int j = 1; j < len; j++)
+                if (((unsigned char)s[i + j] & 0xC0) != 0x80) { ok = 0; break; }
+            if (ok) {
+                for (int j = 0; j < len; j++) opch(s[i + j]);
+                i += len - 1;
+                continue;
+            }
+        }
+        oput("\\uFFFD");
     }
 }
-static void resp_begin_ok(void) { out_bytes = 0; oput("{\"ok\":true"); }
+static void resp_begin_ok(void) { out_bytes = 0; oput("{\"ok\":true,\"id\":"); char b[32]; snprintf(b,sizeof b,"%ld",g_req_id); oput(b); }
 static void resp_end(void) { oput("}\n"); fflush(stdout); }
 static void resp_error(const char *msg) {
     out_bytes = 0;
-    oput("{\"ok\":false,\"error\":\"");
+    char b[32]; snprintf(b,sizeof b,"{\"ok\":false,\"id\":%ld,\"error\":\"",g_req_id); oput(b);
     json_escape(msg, strlen(msg));
     oput("\"}\n");
     fflush(stdout);
@@ -690,6 +730,7 @@ int main(int argc, char **argv) {
         size_t oplen;
         char *op = json_field_str(req, "op", &oplen);
         if (!op) { free(req); continue; }
+        g_req_id = json_field_int(req, "id");
         if (strcmp(op, "ping") == 0) {
             resp_begin_ok();
             oput(unlocked ? ",\"unlocked\":true" : ",\"unlocked\":false");

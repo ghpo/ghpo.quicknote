@@ -44,6 +44,7 @@ Item {
   property bool cryptoStarted: false
   property var cryptoQueue: []
   property var cryptoWaiting: null
+  property int cryptoReqSeq: 0
   property bool passwordOpen: false
   property string passwordError: ""
 
@@ -81,6 +82,8 @@ Item {
   // Serialize requests to the storage daemon: one JSON request per line on
   // stdin, one JSON response per line on stdout (SplitParser).
   function cryptoSend(req, cb) {
+    root.cryptoReqSeq += 1
+    req.id = root.cryptoReqSeq
     cryptoQueue.push({ req: req, cb: cb || null })
     root.cryptoPump()
   }
@@ -99,6 +102,13 @@ Item {
     var res = ({})
     try { res = JSON.parse(String(raw || "")) } catch (e) { res = ({ ok: false, error: "bad response" }) }
     var item = cryptoWaiting
+
+    // Ignore stale/out-of-order responses (match by request id).
+    if (item && Number(res.id) !== Number(item.req.id)) {
+      cryptoWaiting = item   // keep waiting for the matching response
+      cryptoWatchdog.restart()
+      return
+    }
     cryptoWaiting = null
 
     if (!item) { return }
