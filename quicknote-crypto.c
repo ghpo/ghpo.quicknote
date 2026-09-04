@@ -49,6 +49,9 @@
 #define MAX_REQUEST       (MAX_NOTE_BYTES * 4 + 65536)
 #define SEAL_NAME         ".quicknote-seal"
 #define VERIFY_MSG        "quicknote-v1"
+/* Exact on-disk size of the seal: salt ‖ seal nonce ‖ ct(VERIFY_MSG). */
+#define SEAL_EXPECTED     (crypto_pwhash_SALTBYTES + crypto_secretbox_NONCEBYTES \
+                           + crypto_secretbox_MACBYTES + sizeof(VERIFY_MSG))
 
 static uid_t uid_now;
 static char dir_path[4096];
@@ -873,6 +876,70 @@ static void cmd_changepass(const char *oldpass, size_t olen,
     }
 }
 
+/* Restore a backed-up seal. The user-chosen source is read with no-follow and
+ * must be a regular file the user owns and of the exact expected size; the
+ * seal is then published inside the notes dir through the same
+ * descriptor-relative exclusive-temp + atomic-rename path used for notes, so
+ * a pathname race cannot redirect or clobber a private file. Safe while the
+ * daemon is locked — that is exactly when a fresh machine imports a seal. */
+static void cmd_importseal(const char *src) {
+    if (plain) { resp_error("plain mode: no seal"); return; }
+    if (!src || !*src || strlen(src) > 4000) { resp_error("bad source path"); return; }
+
+    int sfd = open(src, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (sfd < 0) { resp_error("cannot open the source seal"); return; }
+    struct stat st;
+    if (fstat(sfd, &st) < 0 || !S_ISREG(st.st_mode) || st.st_uid != uid_now) {
+        close(sfd);
+        resp_error("source seal is not a regular file you own");
+        return;
+    }
+    if (st.st_size != (off_t)SEAL_EXPECTED) {
+        close(sfd);
+        resp_error("invalid seal file (wrong size)");
+        return;
+    }
+    unsigned char buf[SEAL_EXPECTED];
+    size_t got = 0;
+    while (got < sizeof buf) {
+        ssize_t r = read(sfd, buf + got, sizeof buf - got);
+        if (r <= 0) break;
+        got += (size_t)r;
+    }
+    close(sfd);
+    if (got != sizeof buf) { resp_error("failed to read the source seal"); return; }
+
+    int dfd = open_notes_dir();
+    if (dfd < 0) { resp_error("cannot open notes dir"); return; }
+    char tmp[64];
+    int tfd = create_excl(dfd, ".qn-seal-", tmp, sizeof tmp);
+    if (tfd < 0) { close(dfd); resp_error("cannot create temp"); return; }
+    size_t w = 0;
+    while (w < sizeof buf) {
+        ssize_t r = write(tfd, buf + w, sizeof buf - w);
+        if (r <= 0) break;
+        w += (size_t)r;
+    }
+    fsync(tfd);
+    close(tfd);
+    if (w != sizeof buf) {
+        unlinkat(dfd, tmp, 0);
+        close(dfd);
+        resp_error("write failed");
+        return;
+    }
+    if (renameat(dfd, tmp, dfd, SEAL_NAME) < 0) {
+        unlinkat(dfd, tmp, 0);
+        close(dfd);
+        resp_error("publish failed");
+        return;
+    }
+    fsync(dfd);
+    close(dfd);
+    resp_begin_ok();
+    resp_end();
+}
+
 /* -------------------------------------------------------------------- main */
 
 int main(int argc, char **argv) {
@@ -927,6 +994,11 @@ int main(int argc, char **argv) {
                 else if (r == -1) resp_error("wrong password");
                 else resp_error("unlock failed");
             }
+        } else if (strcmp(op, "importseal") == 0) {
+            size_t plen;
+            char *path = json_field_str(req, "path", &plen);
+            if (!path) resp_error("missing path");
+            else { cmd_importseal(path); free(path); }
         } else if (!unlocked) {
             resp_error("locked");
         } else if (strcmp(op, "list") == 0) {

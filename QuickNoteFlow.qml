@@ -247,6 +247,7 @@ Item {
   property string syncRemoteEdit: ""
   property bool syncSshOpen: false
   property bool keyBackupOpen: false
+  property bool importBusy: false
 
   function syncLogAdd(extra) {
     if (extra) root.syncOutput = root.syncOutput + String(extra) + "\n"
@@ -368,29 +369,29 @@ Item {
   // as .quicknote-seal. Do this BEFORE the first unlock on a new machine, or
   // the daemon would create a fresh salt and old notes could not decrypt.
   function importSeal() {
-    if (importSealProc.running) return
+    if (importPickProc.running || root.importBusy) return
     // Hide the dialog so the portal file chooser is not behind the overlay.
     root.dismiss()
-    var seal = root.expandedNotesDir() + "/.quicknote-seal"
-    var cmd = "src=$(omarchy-file-select --title 'Select your quicknote-seal backup' 2>/dev/null); "
-      + "if [[ -n $src && -f \"$src\" ]]; then "
-      + "mkdir -p " + Util.shellQuote(root.expandedNotesDir())
-      + " && cp \"$src\" " + Util.shellQuote(seal)
-      + " && chmod 600 " + Util.shellQuote(seal)
-      + " && echo restored; else echo cancelled; fi"
-    importSealProc.command = ["bash", "-lc", cmd]
-    importSealProc.running = true
+    importPickProc.command = ["omarchy-file-select",
+      "--title", "Select your quicknote-seal backup"]
+    importPickProc.running = true
   }
 
-  function onSealImported(out) {
-    var text = String(out || "").trim()
-    if (text === "restored") {
-      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-        "Seal restored", "Now reopen Quick Notes and unlock with your password"])
-    } else {
-      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-        "Import cancelled", "No seal was copied"])
-    }
+  // The chooser printed a path; hand it to the storage daemon, which reads the
+  // file through its own bounded no-follow boundary, validates the seal format
+  // and publishes it atomically inside the notes dir. Safe while locked.
+  function doImportSeal(path) {
+    root.importBusy = true
+    root.cryptoSend({ op: "importseal", path: path }, function(res) {
+      root.importBusy = false
+      if (res.ok) {
+        Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+          "Seal restored", "Reopen Quick Notes and unlock with your password"])
+      } else {
+        Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+          "Import failed", res.error || "invalid seal file"])
+      }
+    })
   }
 
   function expandedNotesDir() {
@@ -782,13 +783,24 @@ Item {
     }
   }
 
-  // Seal restore helper (file chooser -> copy into the notes dir).
+  // Seal restore picker: just returns the path the user selected (bounded,
+  // one-shot read). The copy itself is done by the storage daemon op.
   Process {
-    id: importSealProc
+    id: importPickProc
     command: []
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.onSealImported(text)
+    stdout: SplitParser {
+      onRead: function(line) {
+        var p = String(line || "").trim()
+        if (!p) return
+        importPickProc.running = false
+        if (root.importBusy) return
+        if (p.length > 4000) return
+        root.doImportSeal(p)
+      }
+    }
+    // If the overlay is torn down while the portal is open, stop the picker.
+    Component.onDestruction: {
+      importPickProc.running = false
     }
   }
 
