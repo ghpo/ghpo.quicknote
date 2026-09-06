@@ -25,6 +25,10 @@ private git remote** — everything optional and configurable per widget.
   removing).
 - **Tab** moves between the editor and the note list.
 - Text search and automatic `#tag` detection/filtering from note content.
+- **Inline images**: paste a screenshot (or press **Img**) and it is compressed
+  (JPEG, max 1200px) and embedded as a `data:` URI in the markdown — still one
+  text file, so it is encrypted and synced like any note. The live preview
+  renders the image.
 - Delete requires confirmation.
 - **Encrypted storage** (optional): notes are encrypted before they ever touch
   disk. See [Encryption & security](#encryption--security).
@@ -90,8 +94,10 @@ omarchy plugin enable ghpo.quicknote --section center --after omarchy.clock
 ### Requirements
 
 A C compiler (`cc`/`gcc`/`clang`) and the `libsodium` headers are needed to
-build the storage daemon on first use — both are standard on Arch/Omarchy. No
-other external runtime is required.
+build the storage daemon on first use — both are standard on Arch/Omarchy. To
+paste images, **ImageMagick** (`magick`) and **wl-clipboard** (`wl-paste` /
+`wl-copy`) are used — if `magick` is missing, Quick Notes tells you the
+one-time install command (`sudo pacman -S --noconfirm imagemagick`).
 
 ## Configuration
 

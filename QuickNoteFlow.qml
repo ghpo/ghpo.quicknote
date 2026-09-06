@@ -53,7 +53,7 @@ Item {
   property string searchText: ""
   property bool cursorActive: false
   property int listLimit: 50
-  property int maxNoteChars: 50000
+  property int maxNoteChars: 1500000
   property int maxQueryChars: 200
   // Editor mode: false = write (plain text), true = rendered markdown preview.
   property bool previewOn: true
@@ -114,6 +114,7 @@ Item {
     return root.home + "/.config/omarchy/plugins/ghpo.quicknote"
   }
   readonly property string quicknoteScript: root.sourceDir + "/quicknote.sh"
+  property string qnStateDir: root.home + "/.local/state/omarchy"
 
   function daemonCommand() {
     // The daemon only honours --plain as its FIRST argument, so it must come
@@ -716,6 +717,114 @@ Item {
   function formatNumbered() { root.editorLinePrefix("1. ") }
   function formatQuote() { root.editorLinePrefix("> ") }
 
+  /* ---- paste image / insert helpers ---- */
+  property bool pasteBusy: false
+  property int lastPasteExit: 0
+
+  function insertTextAtCursor(ins, addLeadingNl) {
+    var ta = noteEditor
+    if (!ta) return
+    var pos = ta.cursorPosition
+    var txt = ta.text
+    var before = txt.slice(0, pos)
+    var lead = (addLeadingNl && before !== "" && before.slice(-1) !== "\n") ? "\n" : ""
+    var after = txt.slice(pos)
+    var end = pos + lead.length + String(ins).length
+    ta.text = before + lead + ins + after
+    Qt.callLater(function() {
+      ta.cursorPosition = end
+      ta.forceActiveFocus()
+    })
+  }
+
+  function pasteSmart() {
+    if (root.pasteBusy) return
+    root.pasteBusy = true
+    root.lastPasteExit = 0
+    pasteImgProc.command = [root.sourceDir + "/quicknote-paste-image.sh"]
+    pasteImgProc.running = true
+  }
+
+  function onPasteImgFinished(out, code) {
+    root.pasteBusy = false
+    var t = String(out || "").trim()
+    if (t.indexOf("data:image") === 0) { root.insertTextAtCursor(t, true); return }
+    if (code === 4) {
+      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+        "ImageMagick missing",
+        "Install it once:  sudo pacman -S --noconfirm imagemagick"])
+      return
+    }
+    // Not an image on the clipboard: paste plain text instead.
+    textPasteProc.command = ["wl-paste"]
+    textPasteProc.running = true
+  }
+
+  function onTextPaste(out) {
+    var t = String(out || "")
+    t = t.replace(/\n$/, "")   // wl-paste adds a trailing newline
+    if (t) root.insertTextAtCursor(t, false)
+  }
+
+  /* ---- inline image preview (decode data URI -> temp file) ---- */
+  property int previewTick: 0
+  property var imgCache: ({})
+  property var imgQueue: []
+  property string decP: ""
+  property string decPath: ""
+
+  function imgHash(p) {
+    var h = 5381
+    for (var i = 0; i < p.length; i++) h = ((h * 33) ^ p.charCodeAt(i)) >>> 0
+    return h.toString(16)
+  }
+
+  function imgDecodeDone(path, p) {
+    root.imgCache[p] = path
+    root.previewTick++
+    root.pumpImgDecode()
+  }
+
+  function pumpImgDecode() {
+    if (imgDecodeProc.running) return
+    while (imgQueue.length > 0) {
+      var p = imgQueue[0]
+      if (root.imgCache[p] !== undefined) { imgQueue.shift(); continue }
+      imgQueue.shift()
+      var path = root.qnStateDir + "/qnpreview-" + root.imgHash(p) + ".jpg"
+      root.decP = p
+      root.decPath = path
+      imgDecodeProc.command = [root.sourceDir + "/quicknote-decimg.sh", path, p]
+      imgDecodeProc.running = true
+      return
+    }
+  }
+
+  function enqueueImgs(note) {
+    var re = /data:image\/(?:png|jpe?g|webp|gif);base64,([A-Za-z0-9+/=]{20,})/g
+    var m
+    while ((m = re.exec(String(note || ""))) !== null) {
+      var p = m[1]
+      if (root.imgCache[p] === undefined && root.imgQueue.indexOf(p) === -1) root.imgQueue.push(p)
+    }
+    root.pumpImgDecode()
+  }
+
+  function renderPreview() {
+    // Reading previewTick makes this binding re-run after decodes finish.
+    var tick = root.previewTick
+    root.enqueueImgs(root.note)
+    var html = root.mdToHtml(root.note)
+    var re = /!\[([^\]]*)\]\((data:image\/(?:png|jpe?g|webp|gif);base64,)([A-Za-z0-9+/=]+)\)/g
+    html = html.replace(re, function(m, alt, prefix, payload) {
+      var path = root.imgCache[payload]
+      if (path) return '<br/><img src="file://' + path + '" style="max-width:100%"/>'
+      return '<br/><i>[image]</i>'
+    })
+    return html
+  }
+
+
   function reloadNotes() {
     root.cryptoSend({ op: "list", limit: root.listLimit }, function(res) {
       if (res.ok && res.notes) root.applyNotes(res.notes)
@@ -754,7 +863,7 @@ Item {
       if (!path) continue
       var file = String(e.file || "").slice(0, 256)
       var title = String(e.title || "").slice(0, 512)
-      var content = String(e.content || "").slice(0, 131072)
+      var content = String(e.content || "").slice(0, 1500000)
       var stamp = String(e.stamp || "").slice(0, 64)
       var tags = []
       if (Array.isArray(e.tags)) {
@@ -1039,6 +1148,31 @@ Item {
       waitForEnd: true
       onStreamFinished: root.onPubKeyCopied(text)
     }
+  }
+  // Paste: tries to grab an image from the clipboard, else pastes text.
+  Process {
+    id: pasteImgProc
+    command: []
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.onPasteImgFinished(text, pasteImgProc.exitCode)
+    }
+  }
+
+  Process {
+    id: textPasteProc
+    command: []
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.onTextPaste(text)
+    }
+  }
+
+  // Decodes one embedded image payload to a temp file for the preview.
+  Process {
+    id: imgDecodeProc
+    command: []
+    onExited: root.imgDecodeDone(root.decPath || "", root.decP || "")
   }
 
   // Seal backup helper (file chooser -> copy).
@@ -1566,6 +1700,7 @@ Item {
                 Button { text: "•"; fontFamily: root.fontFamily; tooltipText: "Bullet list (- )"; onClicked: root.formatBullet() }
                 Button { text: "1."; fontFamily: root.fontFamily; tooltipText: "Numbered list (1. )"; onClicked: root.formatNumbered() }
                 Button { text: "❝"; fontFamily: root.fontFamily; tooltipText: "Quote (> )"; onClicked: root.formatQuote() }
+                Button { text: "Img"; fontFamily: root.fontFamily; tooltipText: "Paste screenshot as an inline image"; onClicked: root.pasteSmart() }
               }
 
               Item {
@@ -1623,6 +1758,10 @@ Item {
                 Keys.priority: Keys.BeforeItem
                 Keys.onPressed: function(event) {
                   if (root.modalKey(event)) return
+                  if (event.key === Qt.Key_V && (event.modifiers & Qt.ControlModifier)) {
+                    root.pasteSmart()
+                    event.accepted = true
+                  }
                   if (event.key === Qt.Key_Tab) {
                     // Tab moves out of the editor: forward to the note list,
                     // Shift+Tab back up to the search box.
@@ -1690,7 +1829,7 @@ Item {
                   visible: root.previewOn && root.note.trim() !== ""
                   textFormat: Text.RichText
                   readOnly: true
-                  text: root.mdToHtml(root.note)
+                  text: root.renderPreview()
                   wrapMode: Text.WrapAnywhere
                   color: root.foreground
                   selectionColor: Style.selectionFillFor(root.foreground, Color.accent)

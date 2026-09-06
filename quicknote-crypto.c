@@ -40,7 +40,7 @@
 #include <sys/mman.h>
 #include <sodium.h>
 
-#define MAX_NOTE_BYTES    (512 * 1024)
+#define MAX_NOTE_BYTES    (1536 * 1024)
 #define MAX_QUERY_BYTES   512
 #define MAX_FILES         500
 #define MAX_FILE_BYTES    (128 * 1024)
