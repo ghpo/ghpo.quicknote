@@ -1628,7 +1628,7 @@ Item {
                    visible: !(root.previewOn && root.note.trim() !== "")
                    clip: true
                    contentWidth: width
-                   contentHeight: Math.max(height, noteEditor.contentHeight + 2 * Style.spacing.inputPaddingY)
+                   contentHeight: Math.max(height, noteEditor.height + 2 * Style.spacing.inputPaddingY)
                    boundsBehavior: Flickable.StopAtBounds
                    ScrollBar.vertical: ThinScrollBar { }
 
@@ -1637,6 +1637,7 @@ Item {
                      x: Style.spacing.controlPaddingX
                      y: Style.spacing.inputPaddingY
                      width: Math.max(40, editorFlick.width - 2 * Style.spacing.controlPaddingX - 10)
+                     height: Math.max(editorFlick.height, noteEditor.contentHeight)
                      color: root.foreground
                      font.family: root.fontFamily
                      font.pixelSize: Style.font.body
