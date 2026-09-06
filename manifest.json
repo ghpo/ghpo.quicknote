@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ghpo.quicknote",
   "name": "Quick Notes",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "ghpo",
   "description": "Quick note button + dialog with optional encrypted storage (XChaCha20-Poly1305 + Argon2id), recent-notes list, search, #tags, delete confirmation, change-password re-encryption, and git sync to a private remote",
   "kinds": [
@@ -26,7 +26,7 @@
         "type": "string",
         "label": "Icon",
         "description": "Glyph shown on the bar button",
-        "defaultValue": "\udb80\udf9a"
+        "defaultValue": "󰎚"
       },
       {
         "key": "notesDir",

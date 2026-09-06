@@ -11,6 +11,10 @@ private git remote** — everything optional and configurable per widget.
 ## Features
 
 - One-keynote dialog: type, `Enter` saves, `Shift+Enter` adds a newline.
+- **Movable window**: drag the title bar to place the dialog anywhere (it keeps
+  its spot for the session); double-click the title to center it.
+- **Markdown preview**: switch the editor between **Write** and **Preview**
+  (renders `#`, `**bold**`, lists, etc.).
 - Recent-notes list (newest first) with click-to-edit, keyboard navigation
   (`↑`/`↓`, `Enter` loads, `Alt+Enter` copies, `Ctrl+Enter` opens in your
   editor, `Delete` asks before removing).
@@ -25,7 +29,9 @@ private git remote** — everything optional and configurable per widget.
   failure leaves your notes untouched).
 - **Git sync**: pull + commit + push to a private remote from inside the app,
   with a live log window, an editable remote, a copy-public-key button and an
-  SSH-key setup guide.
+  SSH-key setup guide. A small dot appears next to Sync when local notes were
+  changed but not pushed yet, and the Sync window shows the last successful
+  sync time.
 - **Key backup**: a single **Key Backup** footer button opens **Export /
   Import** options — export saves the `.quicknote-seal` (the salt needed to
   unlock the same notes on another machine) to a folder you choose; import

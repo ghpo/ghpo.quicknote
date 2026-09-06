@@ -34,6 +34,11 @@ Item {
   property int listLimit: 50
   property int maxNoteChars: 50000
   property int maxQueryChars: 200
+  // Editor mode: false = write (plain text), true = rendered markdown preview.
+  property bool previewOn: false
+  // Local changes not yet pushed to the remote (git sync pending).
+  property bool unsynced: false
+  property string lastSync: ""
 
   // Crypto / storage-daemon state.
   property bool cryptoEnabled: false
@@ -70,6 +75,9 @@ Item {
   readonly property int listPaneWidth: Math.max(Style.space(280), Math.min(Style.space(360), root.cardWidth * 0.42))
   readonly property int noteRowHeight: Math.max(Style.space(52), Style.font.body + Style.font.caption + Style.spacing.xxl)
   readonly property int textBoxRadius: Math.max(14, Style.cornerRadius)
+  // Movable dialog: -1 = not placed yet (center on next open).
+  property real winX: -1
+  property real winY: -1
 
   // Helper scripts ship inside the plugin, so a checkout works anywhere.
   readonly property string sourceDir: {
@@ -291,6 +299,8 @@ Item {
     root.syncOutput = out
     if (out.indexOf("quicknote: OK") !== -1) {
       root.syncStatus = "ok"
+      root.unsynced = false
+      root.lastSync = Qt.formatTime(new Date(), "HH:mm")
       Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
         "Notes synced", "Pulled and pushed from/to " + root.syncRemoteEdit])
     } else {
@@ -299,6 +309,10 @@ Item {
         "Sync failed", "See the log for details"])
     }
     root.reloadNotes()
+  }
+
+  function markUnsynced() {
+    if (root.gitRemote !== "") root.unsynced = true
   }
 
   // Persist the remote back into shell.json so the bar button uses it too.
@@ -417,10 +431,12 @@ Item {
     if (payload.gitRemote) root.gitRemote = String(payload.gitRemote).slice(0, 512)
 
     root.opened = true
+    root.previewOn = false
     root.startNewNote()
     searchField.text = ""
     root.searchText = ""
     root.cursorActive = false
+    Qt.callLater(function() { root.clampCard() })
 
     // Start the storage daemon, then load notes (prompts for the password
     // automatically if encryption is on and the key is not in RAM).
@@ -450,6 +466,41 @@ Item {
       root.shell.hide((root.manifest && root.manifest.id) || "ghpo.quicknote")
   }
 
+  // Dialog is movable by dragging its title bar. -1 means "not placed yet",
+  // so opening (or a resize) centers it; otherwise the position is kept for
+  // the rest of the shell session (the overlay stays loaded between opens).
+  function cardCenter() {
+    var cx = Math.max(0, Math.round((panel.width - card.width) / 2))
+    var cy = Math.max(0, Math.round((panel.height - card.height) / 2))
+    return Qt.point(cx, cy)
+  }
+
+  function clampCard() {
+    var c = root.cardCenter()
+    var maxX = Math.max(c.x, panel.width - card.width)
+    var maxY = Math.max(c.y, panel.height - card.height)
+    if (root.winX < 0) root.winX = c.x
+    if (root.winY < 0) root.winY = c.y
+    root.winX = Math.max(0, Math.min(maxX, root.winX))
+    root.winY = Math.max(0, Math.min(maxY, root.winY))
+  }
+
+  function centerCard() {
+    var c = root.cardCenter()
+    root.winX = c.x
+    root.winY = c.y
+  }
+
+  function dragCardBy(dx, dy) {
+    var c = root.cardCenter()
+    var maxX = Math.max(c.x, panel.width - card.width)
+    var maxY = Math.max(c.y, panel.height - card.height)
+    var nx = root.winX < 0 ? c.x : root.winX
+    var ny = root.winY < 0 ? c.y : root.winY
+    root.winX = Math.max(0, Math.min(maxX, nx + dx))
+    root.winY = Math.max(0, Math.min(maxY, ny + dy))
+  }
+
   function toggle() {
     if (root.opened) root.dismiss()
     else root.open("{}")
@@ -459,6 +510,15 @@ Item {
     root.editingFile = ""
     root.note = ""
     Qt.callLater(function() { noteEditor.forceActiveFocus() })
+  }
+
+  function setEditorMode(mode) {
+    root.previewOn = mode === "preview"
+    if (root.previewOn) {
+      Qt.callLater(function() { if (previewFlick) previewFlick.contentY = 0 })
+    } else {
+      Qt.callLater(function() { if (noteEditor) noteEditor.forceActiveFocus() })
+    }
   }
 
   function reloadNotes() {
@@ -591,6 +651,7 @@ Item {
     // Supervised: only refresh after the daemon confirms deletion.
     root.cryptoSend({ op: "delete", file: path.split("/").pop() }, function(res) {
       if (res.ok) {
+        root.markUnsynced()
         if (root.editingFile === path) root.startNewNote()
         root.reloadNotes()
       } else if (res.error !== "locked") {
@@ -692,6 +753,7 @@ Item {
       edit: root.editingFile ? root.editingFile.split("/").pop() : null
     }, function(res) {
       if (res.ok) {
+        root.markUnsynced()
         Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
           "Quick note saved", "Your note was saved in " + root.notesDir])
         root.dismiss()
@@ -836,12 +898,35 @@ Item {
       width: root.cardWidth
       height: root.cardHeight
       radius: root.cornerRadius
-      anchors.centerIn: parent
+      x: root.winX
+      y: root.winY
       color: root.background
       borderSpec: root.borderSpec
       padding: root.contentMargin
 
-      MouseArea { anchors.fill: parent; onClicked: {} }
+      // Clicks on the card do not reach the scrim; presses started over the
+      // title bar drag the whole dialog; double-click on the title centers it.
+      MouseArea {
+        id: cardArea
+        anchors.fill: parent
+        property bool dragging: false
+        property point down
+        readonly property real titleBandY: {
+          if (!titleRow || !card) return 40
+          return titleRow.mapToItem(card, 0, 0).y + titleRow.height
+        }
+        onPressed: function(m) {
+          dragging = m.y <= titleBandY
+          down = Qt.point(m.x, m.y)
+        }
+        onPositionChanged: function(m) {
+          if (dragging) root.dragCardBy(m.x - down.x, m.y - down.y)
+        }
+        onReleased: function() { dragging = false }
+        onDoubleClicked: function(m) {
+          if (m.y <= titleBandY) root.centerCard()
+        }
+      }
 
       ColumnLayout {
         anchors.fill: parent
@@ -852,6 +937,7 @@ Item {
         spacing: Style.spacing.panelGap
 
         RowLayout {
+          id: titleRow
           Layout.fillWidth: true
           spacing: Style.spacing.panelGap
 
@@ -863,6 +949,14 @@ Item {
             font.pixelSize: Style.font.heading
             font.bold: true
             elide: Text.ElideRight
+          }
+
+          Text {
+            text: "drag to move · double-click to center"
+            color: Qt.darker(root.foreground, 1.8)
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            verticalAlignment: Text.AlignVCenter
           }
         }
 
@@ -1166,11 +1260,41 @@ Item {
                 }
               }
 
+              // Write / Markdown-preview toggle above the editor.
+              RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Style.spacing.xs
+                spacing: Style.spacing.xs
+                visible: !root.isLocked
+
+                Text {
+                  text: "Mode"
+                  color: Qt.darker(root.foreground, 1.7)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  verticalAlignment: Text.AlignVCenter
+                }
+                Item { Layout.fillWidth: true }
+                Button {
+                  text: "Write"
+                  fontFamily: root.fontFamily
+                  active: !root.previewOn
+                  tooltipText: "Plain-text editor"
+                  onClicked: root.setEditorMode("write")
+                }
+                Button {
+                  text: "Preview"
+                  fontFamily: root.fontFamily
+                  active: root.previewOn
+                  tooltipText: "Render the note as markdown"
+                  onClicked: root.setEditorMode("preview")
+                }
+              }
+
               Item {
                 id: editorSlot
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-
                 // Solid box behind the editor (TextArea background doesn't
                 // paint reliably, so the fill lives here as a sibling). The
                 // thin neon border also lives here, not on the comet overlay.
@@ -1189,6 +1313,7 @@ Item {
                   id: noteEditor
                   anchors.fill: parent
                   clip: true
+                  visible: !root.previewOn
 
                   text: root.note
                   placeholderText: "Type your note...  (Enter saves, Shift+Enter new line)"
@@ -1251,8 +1376,46 @@ Item {
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   wrapMode: Text.WordWrap
-                  visible: root.note.trim() === ""
+                  visible: root.note.trim() === "" && !root.previewOn
                   z: 2
+                }
+
+                // Rendered markdown preview (read-only), replaces the editor.
+                Flickable {
+                  id: previewFlick
+                  anchors.fill: parent
+                  anchors.margins: Style.space(8)
+                  clip: true
+                  visible: root.previewOn
+                  contentWidth: width
+                  contentHeight: previewText.height
+                  boundsBehavior: Flickable.StopAtBounds
+
+                  Text {
+                    id: previewText
+                    width: previewFlick.width
+                    text: root.note
+                    textFormat: Text.MarkdownText
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    linkColor: Color.accent
+                    wrapMode: Text.Wrap
+                  }
+
+                  Keys.priority: Keys.BeforeItem
+                  Keys.onPressed: function(event) {
+                    if (root.modalKey(event)) return
+                    if (event.key === Qt.Key_Escape) {
+                      root.dismiss()
+                      event.accepted = true
+                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                      if (!(event.modifiers & Qt.ShiftModifier)) {
+                        root.saveAndClose()
+                        event.accepted = true
+                      }
+                    }
+                  }
                 }
 
                 NeonBorder {
@@ -1430,6 +1593,18 @@ Item {
 
         Item { Layout.fillWidth: true }
 
+        // Unsaved-changes dot: a note was changed since the last successful
+        // push to the git remote.
+        Text {
+          text: "•"
+          color: "#e0a030"
+          font.family: root.fontFamily
+          font.bold: true
+          font.pixelSize: Style.font.body
+          verticalAlignment: Text.AlignVCenter
+          visible: root.unsynced && !root.isLocked && root.cryptoEnabled && root.cryptoUnlocked
+        }
+
         Button {
           text: "New"
           fontFamily: root.fontFamily
@@ -1542,9 +1717,11 @@ Item {
                         "The field above the editor filters by text or by #tag. <b>Esc</b> clears it.<br/><br/>" +
                         "<b style='color:" + root.foreground + "'>Categorizing with # (tags)</b><br/>" +
                         "Write #word anywhere in the note text (e.g. #idea, #shopping). The word becomes a tag automatically, shows in blue in the list, and works as a filter: click it or type it in the search to see only the notes with that tag.<br/><br/>" +
-                        "<b style='color:" + root.foreground + "'>Shortcuts</b><br/>" +
-                        "· <b>Esc</b> — closes without saving<br/>" +
-                        "· <b>Shift+Enter</b> — new line"
+                         "<b style='color:" + root.foreground + "'>Shortcuts</b><br/>" +
+                         "· <b>Esc</b> — closes without saving<br/>" +
+                         "· <b>Shift+Enter</b> — new line<br/>" +
+                         "· <b>Write / Preview</b> — render the note as markdown<br/>" +
+                         "· <b>drag the title bar</b> — move the dialog (double-click centers it)"
                 }
               }
 
@@ -1860,6 +2037,15 @@ Item {
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
                 font.bold: true
+
+              Text {
+                Layout.fillWidth: true
+                visible: root.lastSync !== ""
+                text: "Last successful sync: " + root.lastSync + (root.unsynced ? "  ·  changes not pushed yet" : "")
+                color: Qt.darker(root.foreground, 1.6)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
               }
 
               // Live log panel.
