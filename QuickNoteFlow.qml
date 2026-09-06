@@ -1059,7 +1059,7 @@ Item {
 
   Timer {
     id: renderTimer
-    interval: 1000
+    interval: 5000
     repeat: false
     onTriggered: {
       if (root.note.trim() !== "" && !root.previewOn) root.goRendered()
@@ -1756,9 +1756,49 @@ Item {
         }
       }
 
-      RowLayout {
+
+        Button {
+          text: root.unsynced ? "● Sync" : "Sync"
+          fontFamily: root.fontFamily
+          visible: root.cryptoEnabled && root.cryptoUnlocked
+          enabled: !root.syncBusy
+          tooltipText: root.unsynced ? "Pull + push notes (local changes not pushed yet)"
+                                     : "Pull + push notes to a git remote"
+          onClicked: root.openSync()
+        }
+
+        Item { Layout.fillWidth: true }
+
+        Button {
+          text: "New"
+          fontFamily: root.fontFamily
+          visible: root.editingFile !== "" && !root.isLocked
+          onClicked: root.startNewNote()
+        }
+
+        Button {
+          text: "Close"
+          fontFamily: root.fontFamily
+          visible: !root.isLocked
+          onClicked: root.dismiss()
+        }
+
+        Button {
+          text: "Save"
+          fontFamily: root.fontFamily
+          active: true
+          visible: !root.isLocked
+          onClicked: root.saveAndClose()
+        }
+      }
+      Item {
         Layout.fillWidth: true
-        spacing: Style.spacing.controlGap
+        implicitHeight: 36
+        RowLayout {
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          spacing: Style.spacing.controlGap
 
         Button {
           text: "?"
@@ -1845,40 +1885,6 @@ Item {
               }            }
             }
           }
-        }
-
-        Button {
-          text: root.unsynced ? "● Sync" : "Sync"
-          fontFamily: root.fontFamily
-          visible: root.cryptoEnabled && root.cryptoUnlocked
-          enabled: !root.syncBusy
-          tooltipText: root.unsynced ? "Pull + push notes (local changes not pushed yet)"
-                                     : "Pull + push notes to a git remote"
-          onClicked: root.openSync()
-        }
-
-        Item { Layout.fillWidth: true }
-
-        Button {
-          text: "New"
-          fontFamily: root.fontFamily
-          visible: root.editingFile !== "" && !root.isLocked
-          onClicked: root.startNewNote()
-        }
-
-        Button {
-          text: "Close"
-          fontFamily: root.fontFamily
-          visible: !root.isLocked
-          onClicked: root.dismiss()
-        }
-
-        Button {
-          text: "Save"
-          fontFamily: root.fontFamily
-          active: true
-          visible: !root.isLocked
-          onClicked: root.saveAndClose()
         }
       }
       }
