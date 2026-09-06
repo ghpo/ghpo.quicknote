@@ -425,7 +425,7 @@ Item {
   // the same notes on another machine. Not a secret, but losing it is annoying.
   function exportSeal() {
     if (sealProc.running) return
-    // The Quick Notes overlay is a top layer surface, so the portal file
+    // The Crypto Notes overlay is a top layer surface, so the portal file
     // chooser would open behind it. Hide the dialog first, then export.
     root.dismiss()
     var seal = root.expandedNotesDir() + "/.quicknote-seal"
@@ -468,7 +468,7 @@ Item {
       root.importBusy = false
       if (res.ok) {
         Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-          "Seal restored", "Reopen Quick Notes and unlock with your password"])
+          "Seal restored", "Reopen Crypto Notes and unlock with your password"])
       } else {
         Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
           "Import failed", res.error || "invalid seal file"])
@@ -997,7 +997,7 @@ Item {
         root.savedContent = text
         root.markUnsynced()
         Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-          "Quick note saved", "Your note was saved in " + root.notesDir])
+          "Crypto Notes saved", "Your note was saved in " + root.notesDir])
         root.dismiss()
         root.reloadNotes()
       } else if (res.error !== "locked") {
@@ -1212,7 +1212,7 @@ Item {
 
           Text {
             Layout.fillWidth: true
-            text: "Quick Notes"
+            text: "Crypto Notes"
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.heading
@@ -2053,7 +2053,7 @@ Item {
                   font.pixelSize: Style.font.body
                   lineHeight: 1.45
                   wrapMode: Text.WordWrap
-                  text: "<b style='color:" + root.foreground + "'>Quick Notes</b><br/><br/>" +
+                  text: "<b style='color:" + root.foreground + "'>Crypto Notes</b><br/><br/>" +
                         "Type in the editor. <b>Enter</b> starts a new line; press <b>Ctrl+Enter</b> (or Save) to save the note as a timestamped .md file in ~/Documents/QuickNotes/.<br/><br/>" +
                         "<b style='color:" + root.foreground + "'>Left panel — recent notes</b><br/>" +
                         "· <b>Enter</b> — loads the note into the editor (Save overwrites)<br/>" +
@@ -2473,7 +2473,7 @@ Item {
                 Button {
                   text: "Save remote"
                   fontFamily: root.fontFamily
-                  tooltipText: "Save this remote into the Quick Notes settings"
+                  tooltipText: "Save this remote into the Crypto Notes settings"
                   onClicked: root.saveRemote()
                 }
                 Button {

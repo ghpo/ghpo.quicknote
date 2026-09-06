@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "ghpo.quicknote",
-  "name": "Quick Notes",
+  "name": "Crypto Notes",
   "version": "2.1.0",
   "author": "ghpo",
-  "description": "Quick note button + dialog with optional encrypted storage (XChaCha20-Poly1305 + Argon2id), recent-notes list, search, #tags, delete confirmation, change-password re-encryption, and git sync to a private remote",
+  "description": "Crypto Notes button + dialog with optional encrypted storage (XChaCha20-Poly1305 + Argon2id), recent-notes list, search, #tags, delete confirmation, change-password re-encryption, and git sync to a private remote",
   "kinds": [
     "bar-widget",
     "overlay"
@@ -15,8 +15,8 @@
     "overlay": "QuickNoteFlow.qml"
   },
   "barWidget": {
-    "displayName": "Quick Note",
-    "description": "Button that opens the quick note dialog",
+    "displayName": "Crypto Notes",
+    "description": "Button that opens the Crypto Notes dialog",
     "category": "Notes",
     "allowMultiple": false,
     "defaultSection": "center",

@@ -30,7 +30,7 @@ BarWidget {
     text: root.iconGlyph
     slotSize: Style.bar.statusSlot
     fontSize: Style.font.caption
-    tooltipText: "Quick Note"
+    tooltipText: "Crypto Notes"
     onPressed: root.summon()
   }
 }

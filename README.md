@@ -1,6 +1,6 @@
 # ghpo.quicknote
 
-Quick note for the Omarchy bar. Adds a button next to the clock that opens a
+Crypto Notes: a quick note for the Omarchy bar. Adds a button next to the clock that opens a
 dialog for a fast note. `Enter` starts a new line and `Ctrl+Enter` (or the
 Save button) writes it to `~/Documents/QuickNotes/` as a timestamped markdown
 file; `Esc` (or Close) discards.
@@ -55,7 +55,7 @@ The note button lives in the bar, right next to the clock:
 Click it to open the dialog — recent notes on the left, search + editor on the
 right:
 
-![Quick note dialog](preview.png)
+![Crypto Notes dialog](preview.png)
 
 The editor has an animated neon border:
 
@@ -118,7 +118,7 @@ Example:
 
 ### Where the config lives and how to apply changes
 
-- The config file is `~/.config/omarchy/shell.json`. The Quick Notes entry is
+- The config file is `~/.config/omarchy/shell.json`. The Crypto Notes entry is
   the object with `"id": "ghpo.quicknote"` under `bar.layout.center` (or the
   section where you placed the widget).
 - The plugin's own files (QML, helpers) are in
@@ -146,7 +146,7 @@ ships-in-the-plugin helper so it passes the same settings as the icon (a bare
 
 ```lua
 -- ~/.config/hypr/bindings.lua
-o.bind("CTRL + ALT + RETURN", "Quick note",
+o.bind("CTRL + ALT + RETURN", "Crypto Notes",
        "${HOME}/.config/omarchy/plugins/ghpo.quicknote/quicknote-open.sh")
 ```
 
