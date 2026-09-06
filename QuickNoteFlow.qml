@@ -53,7 +53,7 @@ Item {
   property string searchText: ""
   property bool cursorActive: false
   property int listLimit: 50
-  property int maxNoteChars: 1500000
+  property int maxNoteChars: 50000
   property int maxQueryChars: 200
   // Editor mode: false = write (plain text), true = rendered markdown preview.
   property bool previewOn: true
@@ -114,7 +114,6 @@ Item {
     return root.home + "/.config/omarchy/plugins/ghpo.quicknote"
   }
   readonly property string quicknoteScript: root.sourceDir + "/quicknote.sh"
-  property string qnStateDir: root.home + "/.local/state/omarchy"
 
   function daemonCommand() {
     // The daemon only honours --plain as its FIRST argument, so it must come
@@ -490,13 +489,11 @@ Item {
 
   function close() {
     root.opened = false
-    root.cleanupPreviews()
   }
 
   function dismiss() {
     root.opened = false
     root.keyBackupOpen = false
-    root.cleanupPreviews()
     if (root.passwordOpen) root.passwordOpen = false
     if (root.helpOpen) root.closeHelp()
     if (root.shell && typeof root.shell.hide === "function")
@@ -719,149 +716,6 @@ Item {
   function formatNumbered() { root.editorLinePrefix("1. ") }
   function formatQuote() { root.editorLinePrefix("> ") }
 
-  /* ---- paste image / insert helpers ---- */
-  property bool pasteBusy: false
-  property int lastPasteExit: 0
-
-  function insertTextAtCursor(ins, addLeadingNl) {
-    var ta = noteEditor
-    if (!ta) return
-    var pos = ta.cursorPosition
-    var txt = ta.text
-    var before = txt.slice(0, pos)
-    var lead = (addLeadingNl && before !== "" && before.slice(-1) !== "\n") ? "\n" : ""
-    var after = txt.slice(pos)
-    var end = pos + lead.length + String(ins).length
-    ta.text = before + lead + ins + after
-    Qt.callLater(function() {
-      ta.cursorPosition = end
-      ta.forceActiveFocus()
-    })
-  }
-
-  function pasteSmart() {
-    if (root.pasteBusy) return
-    root.pasteBusy = true
-    root.lastPasteExit = 0
-    pasteImgProc.command = [root.sourceDir + "/quicknote-paste-image.sh"]
-    pasteImgProc.running = true
-  }
-
-  function onPasteImgFinished(out, code) {
-    root.pasteBusy = false
-    var t = String(out || "").trim()
-    if (t.indexOf("data:image") === 0) { root.insertTextAtCursor(t, true); return }
-    if (code === 4) {
-      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-        "ImageMagick missing",
-        "Install it once:  sudo pacman -S --noconfirm imagemagick"])
-      return
-    }
-    // Not an image on the clipboard: paste plain text instead.
-    textPasteProc.command = ["wl-paste"]
-    textPasteProc.running = true
-  }
-
-  function onTextPaste(out) {
-    var t = String(out || "")
-    t = t.replace(/\n$/, "")   // wl-paste adds a trailing newline
-    if (t) root.insertTextAtCursor(t, false)
-  }
-
-  /* ---- inline image preview (decode data URI -> temp file) ---- */
-  property int previewTick: 0
-  property var imgCache: ({})
-  property var imgQueue: []
-  property var imgList: []
-  property var imgRatios: ({})
-  property string decP: ""
-  property string decPath: ""
-
-  function cleanupPreviews() {
-    var paths = []
-    for (var k in root.imgCache) {
-      var p = root.imgCache[k]
-      if (p && p.indexOf("/qnpreview-") !== -1) paths.push(p)
-    }
-    root.imgCache = {}
-    root.imgQueue = []
-    if (paths.length > 0) {
-      var cmd = ["rm", "-f"].concat(paths)
-      Quickshell.execDetached(cmd)
-    }
-    root.previewTick++
-  }
-
-  function imgHash(p) {
-    var h = 5381
-    for (var i = 0; i < p.length; i++) h = ((h * 33) ^ p.charCodeAt(i)) >>> 0
-    return h.toString(16)
-  }
-
-  function imgDecodeDone(path, p) {
-    if (p) root.imgCache[p] = path
-    root.previewTick++
-    root.refreshImgs()
-    root.pumpImgDecode()
-  }
-
-  function refreshImgs() {
-    var out = []
-    for (var k in root.imgCache) { var v = root.imgCache[k]; if (v && v.indexOf("/qnpreview-") !== -1) out.push(v) }
-    root.imgList = out
-  }
-
-  function setImgRatio(path, w, h) {
-    if (!w || !h) return
-    root.imgRatios[path] = w / h
-    // Refresh the list so the item height picks up the aspect ratio.
-    root.refreshImgs()
-  }
-
-  function prevImgHeight(path, w) {
-    var r = root.imgRatios[path]
-    if (!r || !w) return Math.max(40, w * 0.6)
-    return Math.max(40, w / r)
-  }
-
-  function pumpImgDecode() {
-    if (imgDecodeProc.running) return
-    while (imgQueue.length > 0) {
-      var p = imgQueue[0]
-      if (root.imgCache[p] !== undefined) { imgQueue.shift(); continue }
-      imgQueue.shift()
-      var path = root.qnStateDir + "/qnpreview-" + root.imgHash(p) + ".jpg"
-      root.decP = p
-      root.decPath = path
-      imgDecodeProc.command = [root.sourceDir + "/quicknote-decimg.sh", path, p]
-      imgDecodeProc.running = true
-      return
-    }
-  }
-
-  function enqueueImgs(note) {
-    var re = /data:image\/(?:png|jpe?g|webp|gif);base64,([A-Za-z0-9+/=]{20,})/g
-    var m
-    while ((m = re.exec(String(note || ""))) !== null) {
-      var p = m[1]
-      if (root.imgCache[p] === undefined && root.imgQueue.indexOf(p) === -1) root.imgQueue.push(p)
-    }
-    root.pumpImgDecode()
-  }
-
-  function renderPreviewText() {
-    // Reading previewTick makes this re-run after decodes finish.
-    var tick = root.previewTick
-    root.enqueueImgs(root.note)
-    var html = root.mdToHtml(root.note)
-    var re = /!\[([^\]]*)\]\((data:image\/(?:png|jpe?g|webp|gif);base64,)([A-Za-z0-9+/=]+)\)/g
-    html = html.replace(re, function(m, alt, prefix, payload) {
-      return '<br/><i>[imagem abaixo]</i>'
-    })
-    return html
-  }
-
-
   function reloadNotes() {
     root.cryptoSend({ op: "list", limit: root.listLimit }, function(res) {
       if (res.ok && res.notes) root.applyNotes(res.notes)
@@ -900,7 +754,7 @@ Item {
       if (!path) continue
       var file = String(e.file || "").slice(0, 256)
       var title = String(e.title || "").slice(0, 512)
-      var content = String(e.content || "").slice(0, 1500000)
+      var content = String(e.content || "").slice(0, 131072)
       var stamp = String(e.stamp || "").slice(0, 64)
       var tags = []
       if (Array.isArray(e.tags)) {
@@ -1185,31 +1039,6 @@ Item {
       waitForEnd: true
       onStreamFinished: root.onPubKeyCopied(text)
     }
-  }
-  // Paste: tries to grab an image from the clipboard, else pastes text.
-  Process {
-    id: pasteImgProc
-    command: []
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.onPasteImgFinished(text, pasteImgProc.exitCode)
-    }
-  }
-
-  Process {
-    id: textPasteProc
-    command: []
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.onTextPaste(text)
-    }
-  }
-
-  // Decodes one embedded image payload to a temp file for the preview.
-  Process {
-    id: imgDecodeProc
-    command: []
-    onExited: root.imgDecodeDone(root.decPath || "", root.decP || "")
   }
 
   // Seal backup helper (file chooser -> copy).
@@ -1762,7 +1591,6 @@ Item {
                   anchors.fill: parent
                   clip: true
                   visible: !(root.previewOn && root.note.trim() !== "")
-                  ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                   placeholderText: "Type your note...  (Enter = new line, Ctrl+Enter = save)"
                   placeholderTextColor: Qt.darker(root.foreground, 1.6)
@@ -1795,10 +1623,6 @@ Item {
                 Keys.priority: Keys.BeforeItem
                 Keys.onPressed: function(event) {
                   if (root.modalKey(event)) return
-                  if (event.key === Qt.Key_V && (event.modifiers & Qt.ControlModifier)) {
-                    root.pasteSmart()
-                    event.accepted = true
-                  }
                   if (event.key === Qt.Key_Tab) {
                     // Tab moves out of the editor: forward to the note list,
                     // Shift+Tab back up to the search box.
@@ -1859,16 +1683,26 @@ Item {
                                  : (noteEditor._focused ? 0.45 : 0.22))
                 }
                 // Read-only rich render of the note (auto after a typing pause).
-                Flickable {
+                TextArea {
                   id: renderArea
                   anchors.fill: parent
-                  anchors.margins: Style.space(8)
                   clip: true
                   visible: root.previewOn && root.note.trim() !== ""
-                  contentWidth: width
-                  contentHeight: prevCol.height
-                  boundsBehavior: Flickable.StopAtBounds
-                  ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                  textFormat: Text.RichText
+                  readOnly: true
+                  text: root.mdToHtml(root.note)
+                  wrapMode: Text.WrapAnywhere
+                  color: root.foreground
+                  selectionColor: Style.selectionFillFor(root.foreground, Color.accent)
+                  selectedTextColor: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  leftPadding: Style.spacing.controlPaddingX + Border.left(renderBorder)
+                  rightPadding: Style.spacing.controlPaddingX + Border.right(renderBorder)
+                  topPadding: Style.spacing.inputPaddingY + Border.top(renderBorder)
+                  bottomPadding: Style.spacing.inputPaddingY + Border.bottom(renderBorder)
+                  readonly property var renderBorder: Border.controlSpec("normal", root.foreground, Color.accent)
+                  background: Rectangle { color: "transparent" }
 
                   Keys.priority: Keys.BeforeItem
                   Keys.onPressed: function(event) {
@@ -1877,43 +1711,6 @@ Item {
                     else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                       if (event.modifiers & Qt.ControlModifier) { root.saveAndClose(); event.accepted = true }
                       else if (event.modifiers & Qt.AltModifier) { root.goEdit(); event.accepted = true }
-                    }
-                  }
-
-                  Column {
-                    id: prevCol
-                    width: renderArea.width
-                    spacing: Style.spacing.sm
-
-                    Text {
-                      id: prevText
-                      width: parent.width
-                      textFormat: Text.RichText
-                      text: root.renderPreviewText()
-                      color: root.foreground
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.body
-                      wrapMode: Text.WrapAnywhere
-                    }
-
-                    Repeater {
-                      id: prevImgs
-                      model: root.imgList
-
-                      delegate: Item {
-                        required property string modelData
-                        width: prevCol.width
-                        height: root.prevImgHeight(modelData, width)
-                        Image {
-                          anchors.fill: parent
-                          fillMode: Image.PreserveAspectFit
-                          source: modelData
-                          onStatusChanged: {
-                            if (status === Image.Ready)
-                              root.setImgRatio(modelData, sourceSize.width, sourceSize.height)
-                          }
-                        }
-                      }
                     }
                   }
                 }
