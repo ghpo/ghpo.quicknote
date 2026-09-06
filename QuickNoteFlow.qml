@@ -26,24 +26,11 @@ Item {
   // detect unsaved edits and auto-save before switching notes.
   property string savedContent: ""
 
-  function saveSilently(cb) {
-    if (!root.editingFile) { cb(); return }
-    var text = root.note
-    if (text === root.savedContent) { cb(); return }
-    root.cryptoSend({
-      op: "save",
-      content: text,
-      edit: root.editingFile.split("/").pop()
-    }, function(res) {
-      if (res.ok) root.savedContent = text
-      if (cb) cb()
-    })
-  }
-
   function clearNewNote() {
     root.editingFile = ""
     root.savedContent = ""
     root.note = ""
+    if (noteEditor) noteEditor.text = ""   // immediate, even before bindings run
     noteList.currentIndex = -1
     root.setEditorMode("write")
     Qt.callLater(function() { noteEditor.forceActiveFocus() })
@@ -513,11 +500,26 @@ Item {
   }
 
   function startNewNote() {
-    // Never lose the note being edited: save it first when switching away.
-    if (root.editingFile && root.note !== root.savedContent)
-      root.saveSilently(function() { root.clearNewNote() })
-    else
-      root.clearNewNote()
+    // Clear immediately so a fresh blank note is always shown. The note being
+    // edited (if any) is auto-saved in the background — never block the clear
+    // on the daemon's reply.
+    root.autosaveCurrent()
+    root.clearNewNote()
+  }
+
+  // Fire-and-forget autosave of the file currently being edited, only when
+  // its content changed since it was loaded/saved.
+  function autosaveCurrent() {
+    if (!root.editingFile) return
+    var text = root.note
+    if (text === root.savedContent || !text.trim()) return
+    var file = root.editingFile.split("/").pop()
+    root.cryptoSend({ op: "save", content: text, edit: file }, function(res) {
+      if (res.ok) {
+        root.savedContent = text
+        root.markUnsynced()
+      }
+    })
   }
 
   function setEditorMode(mode) {
@@ -719,12 +721,10 @@ Item {
     if (index < 0 || index >= noteList.count) return
     var row = notesModel.get(index)
     // If the current note has unsaved edits and it is not the one being
-    // opened, save it first so it is never lost.
-    if (root.editingFile && row.path !== root.editingFile
-        && root.note !== root.savedContent) {
-      root.saveSilently(function() { root.loadNote(row, index) })
-      return
-    }
+    // opened, auto-save it in the background so it is never lost, and switch
+    // to the requested note right away.
+    if (root.editingFile && row.path !== root.editingFile)
+      root.autosaveCurrent()
     root.loadNote(row, index)
   }
 
