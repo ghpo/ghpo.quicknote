@@ -459,7 +459,7 @@ Item {
     if (payload.gitRemote) root.gitRemote = String(payload.gitRemote).slice(0, 512)
 
     root.opened = true
-    root.previewOn = true
+    root.previewOn = false
     root.startNewNote()
     searchField.text = ""
     root.searchText = ""
@@ -531,8 +531,40 @@ Item {
     })
   }
 
-  function setEditorMode() {
+  // Editing <-> rendered states of the single note area.
+  function goEdit() {
+    root.previewOn = false
     Qt.callLater(function() { if (noteEditor) noteEditor.forceActiveFocus() })
+  }
+
+  function goRendered() {
+    if (root.note.trim() === "") { root.goEdit(); return }
+    root.previewOn = true
+    Qt.callLater(function() { if (renderArea) renderArea.forceActiveFocus() })
+  }
+
+  function setEditorMode(mode) {
+    if (mode === "preview") root.goRendered()
+    else root.goEdit()
+  }
+
+  // Clicking the rendered text returns to editing. QML cannot map the clicked
+  // rendered position to the source exactly, so the caret lands on the line
+  // nearest to the click.
+  function enterEditingAt(y) {
+    if (root.note.trim() === "") { root.goEdit(); return }
+    root.previewOn = false
+    Qt.callLater(function() {
+      if (!noteEditor) return
+      noteEditor.forceActiveFocus()
+      var text = noteEditor.text
+      var lineH = (noteEditor.font && noteEditor.font.pixelSize ? noteEditor.font.pixelSize : 14) * 1.5
+      var line = Math.max(0, Math.floor((y - Style.spacing.inputPaddingY) / lineH))
+      var nl = 0
+      var i = 0
+      for (i = 0; i < text.length && nl < line; i++) if (text.charAt(i) === "\n") nl++
+      noteEditor.cursorPosition = Math.min(text.length, i)
+    })
   }
 
   /* ---- lightweight markdown -> rich text (all content is HTML-escaped
@@ -738,11 +770,9 @@ Item {
     root.editingFile = row.path
     root.savedContent = row.content
     root.setNoteText(row.content)
-    root.previewOn = true   // open the selected note already rendered
     root.cursorActive = true
     noteList.currentIndex = index
-    root.setEditorMode("preview")
-    Qt.callLater(function() { noteEditor.forceActiveFocus() })
+    root.goRendered()   // open already formatted; click the text to edit
   }
 
   function copyIndex(index) {
@@ -1024,6 +1054,15 @@ Item {
     // If the overlay is torn down while the portal is open, stop the picker.
     Component.onDestruction: {
       importPickProc.running = false
+    }
+  }
+
+  Timer {
+    id: renderTimer
+    interval: 1000
+    repeat: false
+    onTriggered: {
+      if (root.note.trim() !== "" && !root.previewOn) root.goRendered()
     }
   }
 
@@ -1483,22 +1522,12 @@ Item {
                 Button { text: "•"; fontFamily: root.fontFamily; tooltipText: "Bullet list (- )"; onClicked: root.formatBullet() }
                 Button { text: "1."; fontFamily: root.fontFamily; tooltipText: "Numbered list (1. )"; onClicked: root.formatNumbered() }
                 Button { text: "❝"; fontFamily: root.fontFamily; tooltipText: "Quote (> )"; onClicked: root.formatQuote() }
-                Item { Layout.preferredWidth: Style.spacing.lg }
-                Button {
-                  text: root.previewOn ? "Hide preview" : "Show preview"
-                  fontFamily: root.fontFamily
-                  active: root.previewOn
-                  tooltipText: "Show/hide the live markdown preview"
-                  onClicked: root.previewOn = !root.previewOn
-                }
               }
 
               Item {
                 id: editorSlot
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.preferredHeight: 400
-                Layout.minimumHeight: 120
                 // Solid box behind the editor (TextArea background doesn't
                 // paint reliably, so the fill lives here as a sibling). The
                 // thin neon border also lives here, not on the comet overlay.
@@ -1517,6 +1546,7 @@ Item {
                   id: noteEditor
                   anchors.fill: parent
                   clip: true
+                  visible: !(root.previewOn && root.note.trim() !== "")
 
                   placeholderText: "Type your note...  (Enter = new line, Ctrl+Enter = save)"
                   placeholderTextColor: Qt.darker(root.foreground, 1.6)
@@ -1540,7 +1570,10 @@ Item {
 
                   background: Rectangle { color: "transparent" }
 
-                  onTextChanged: root.note = noteEditor.text
+                  onTextChanged: {
+                    root.note = noteEditor.text
+                    if (root.note.trim() !== "" && renderTimer) renderTimer.restart()
+                  }
 
                 Keys.priority: Keys.BeforeItem
                 Keys.onPressed: function(event) {
@@ -1600,53 +1633,61 @@ Item {
                   neonColor: root.neonColor
                   baseOpacity: noteEditor._focused ? 1.0 : 0.32
                 }
-            }
-
-              // Live rendered markdown preview (updates while you type).
-              Item {
-                id: previewPane
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.preferredHeight: 230
-                Layout.minimumHeight: 90
-                visible: root.previewOn
-                clip: true
-
-                BorderSurface {
+                // Read-only rich render of the note (auto after a typing pause).
+                TextArea {
+                  id: renderArea
                   anchors.fill: parent
-                  radius: root.textBoxRadius
-                  color: Qt.darker(root.background, 1.12)
-                  borderSpec: Border.flat(
-                    Qt.rgba(root.neonColor.r, root.neonColor.g, root.neonColor.b, 0.22),
-                    Math.max(1, Style.hairline))
-                }
-
-                Flickable {
-                  id: previewFlick
-                  anchors.fill: parent
-                  anchors.margins: Style.space(8)
                   clip: true
-                  contentWidth: width
-                  contentHeight: previewArea.contentHeight
-                  boundsBehavior: Flickable.StopAtBounds
+                  visible: root.previewOn && root.note.trim() !== ""
+                  textFormat: Text.RichText
+                  readOnly: true
+                  text: root.mdToHtml(root.note)
+                  wrapMode: Text.WrapAnywhere
+                  color: root.foreground
+                  selectionColor: Style.selectionFillFor(root.foreground, Color.accent)
+                  selectedTextColor: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  leftPadding: Style.spacing.controlPaddingX + Border.left(renderBorder)
+                  rightPadding: Style.spacing.controlPaddingX + Border.right(renderBorder)
+                  topPadding: Style.spacing.inputPaddingY + Border.top(renderBorder)
+                  bottomPadding: Style.spacing.inputPaddingY + Border.bottom(renderBorder)
+                  readonly property var renderBorder: Border.controlSpec("normal", root.foreground, Color.accent)
+                  background: Rectangle { color: "transparent" }
 
-                  TextArea {
-                    id: previewArea
-                    width: previewFlick.width
-                    text: root.mdToHtml(root.note)
-                    textFormat: Text.RichText
-                    readOnly: true
-                    wrapMode: Text.WrapAnywhere
-                    color: root.foreground
-                    selectionColor: Style.selectionFillFor(root.foreground, Color.accent)
-                    selectedTextColor: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                    background: null
-                    selectByMouse: true
+                  Keys.priority: Keys.BeforeItem
+                  Keys.onPressed: function(event) {
+                    if (root.modalKey(event)) return
+                    if (event.key === Qt.Key_Escape) { root.dismiss(); event.accepted = true }
+                    else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                      if (event.modifiers & Qt.ControlModifier) { root.saveAndClose(); event.accepted = true }
+                      else if (event.modifiers & Qt.AltModifier) { root.goEdit(); event.accepted = true }
+                    }
                   }
                 }
-              }
+
+                MouseArea {
+                  anchors.fill: parent
+                  visible: renderArea.visible
+                  cursorShape: Qt.IBeamCursor
+                  acceptedButtons: Qt.LeftButton
+                  onClicked: function(m) { root.enterEditingAt(m.y) }
+                }
+
+                Text {
+                  anchors.top: parent.top
+                  anchors.right: parent.right
+                  anchors.topMargin: Style.space(8)
+                  anchors.rightMargin: Style.space(10)
+                  visible: renderArea.visible
+                  text: "click to edit"
+                  color: Qt.darker(root.foreground, 1.7)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+
+
 
 
 
@@ -1801,7 +1842,7 @@ Item {
                   root.keyBackupOpen = false
                   root.importSeal()
                 }
-              }
+              }            }
             }
           }
         }
@@ -1948,7 +1989,8 @@ Item {
                          "· <b>Ctrl+Shift+Enter</b> — open in your text editor<br/>" +
                          "· <b>Esc</b> — close<br/>" +
                          "· <b>Format bar</b> — insert markdown (bold, heading, code…)<br/>" +
-                         "· <b>Show/Hide preview</b> — toggle the live markdown view<br/>" +
+                         "· <b>Live formatting</b> — stop typing ~1s and the note renders formatted;<br/>" +
+                         "· click the rendered text to edit it again<br/>" +
                          "· <b>Maximize</b> (title bar) — fill the screen"
                 }
               }
