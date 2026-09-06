@@ -1084,9 +1084,39 @@ Item {
               color: Util.alpha(root.border, 0.28)
             }
 
+            // Notes list header (count), above the rows.
+            RowLayout {
+              anchors.top: parent.top
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.rightMargin: Style.spacing.lg
+              anchors.leftMargin: Style.space(10)
+              anchors.topMargin: Style.spacing.xs
+              height: Style.font.body + Style.spacing.sm
+              spacing: Style.spacing.sm
+
+              Text {
+                text: "Notes"
+                color: Qt.darker(root.foreground, 1.6)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
+
+              Item { Layout.fillWidth: true }
+
+              Text {
+                text: String(notesModel.count)
+                color: Qt.darker(root.foreground, 1.6)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+
             ListView {
               id: noteList
               anchors.fill: parent
+              anchors.topMargin: Math.round(Style.font.body + Style.spacing.lg)
               anchors.rightMargin: Style.spacing.lg
               clip: true
               spacing: Style.space(4)
@@ -1104,7 +1134,11 @@ Item {
               Keys.priority: Keys.BeforeItem
               Keys.onPressed: function(event) {
                 if (root.modalKey(event)) return
-                if (event.key === Qt.Key_Escape) {
+                if (event.key === Qt.Key_Tab && !(event.modifiers & Qt.ShiftModifier)) {
+                  // Tab from the list moves into the editor.
+                  noteEditor.forceActiveFocus()
+                  event.accepted = true
+                } else if (event.key === Qt.Key_Escape) {
                   if (root.searchText) {
                     searchField.text = ""
                     root.searchText = ""
@@ -1331,26 +1365,9 @@ Item {
                 Layout.fillWidth: true
                 placeholderText: "Search notes…"
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-                color: root.foreground
-                placeholderTextColor: Qt.darker(root.foreground, 1.6)
-                selectionColor: Style.selectionFillFor(root.foreground, Color.accent)
-                selectedTextColor: root.foreground
-
-                leftPadding: Style.spacing.controlPaddingX + Border.left(_borderSpec)
-                rightPadding: Style.spacing.controlPaddingX + Border.right(_borderSpec)
-                topPadding: Style.spacing.inputPaddingY + Border.top(_borderSpec)
-                bottomPadding: Style.spacing.inputPaddingY + Border.bottom(_borderSpec)
-
-                readonly property bool _focused: activeFocus
-                readonly property bool _hot: hovered
-                readonly property var _borderSpec: Border.controlSpec(_focused ? "focus" : (_hot ? "hover-cursor" : "normal"), root.foreground, Color.accent)
-
-                background: BorderSurface {
-                  color: Style.controlFill(searchField._focused, searchField._hot, root.foreground, Color.accent)
-                  borderSpec: searchField._borderSpec
-                  radius: root.textBoxRadius
-                }
+                foreground: root.foreground
+                accent: Color.accent
+                selectionTint: Style.selectionFillFor(root.foreground, Color.accent)
 
                 onTextEdited: {
                   if (!root.opened) return
@@ -1463,7 +1480,7 @@ Item {
                   color: Qt.darker(root.background, noteEditor._focused ? 1.5 : 1.3)
                   borderSpec: Border.flat(
                     Qt.rgba(root.neonColor.r, root.neonColor.g, root.neonColor.b,
-                            noteEditor._focused ? 0.85 : 0.4),
+                            noteEditor._focused ? 0.85 : 0.3),
                     Math.max(1, Style.hairline))
                 }
 
@@ -1501,7 +1518,13 @@ Item {
                 Keys.priority: Keys.BeforeItem
                 Keys.onPressed: function(event) {
                   if (root.modalKey(event)) return
-                  if (event.key === Qt.Key_Escape) {
+                  if (event.key === Qt.Key_Tab) {
+                    // Tab moves out of the editor: forward to the note list,
+                    // Shift+Tab back up to the search box.
+                    if (event.modifiers & Qt.ShiftModifier) searchField.forceActiveFocus()
+                    else noteList.forceActiveFocus()
+                    event.accepted = true
+                  } else if (event.key === Qt.Key_Escape) {
                     root.dismiss()
                     event.accepted = true
                   } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
@@ -1584,7 +1607,7 @@ Item {
                   anchors.fill: parent
                   radius: root.textBoxRadius
                   neonColor: root.neonColor
-                  baseOpacity: noteEditor._focused ? 1.0 : 0.5
+                  baseOpacity: noteEditor._focused ? 1.0 : 0.32
                 }
               }
             }
@@ -1680,8 +1703,8 @@ Item {
         }
 
         Item {
-          width: backupBtn.implicitWidth
-          height: backupBtn.implicitHeight
+          Layout.preferredWidth: backupBtn.implicitWidth
+          Layout.preferredHeight: backupBtn.implicitHeight
           visible: root.cryptoEnabled
 
           Button {
@@ -1758,7 +1781,7 @@ Item {
         // push to the git remote.
         Text {
           text: "•"
-          color: "#e0a030"
+          color: Color.accent
           font.family: root.fontFamily
           font.bold: true
           font.pixelSize: Style.font.body
@@ -2194,7 +2217,7 @@ Item {
                 text: root.syncStatus === "ok" ? "Sync OK — notes pushed to the remote."
                      : root.syncStatus === "error" ? "Sync FAILED — see the log below."
                      : "Working..."
-                color: root.syncStatus === "error" ? Color.urgent : "#77b877"
+                color: root.syncStatus === "error" ? Color.urgent : Color.accent
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
                 font.bold: true
