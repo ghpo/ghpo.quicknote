@@ -38,6 +38,8 @@ Item {
     root.savedContent = ""
     root.setNoteText("")
     noteList.currentIndex = -1
+    root.idleWait = false
+    if (idleTimer) idleTimer.stop()
     root.setEditorMode("write")
     Qt.callLater(function() { noteEditor.forceActiveFocus() })
   }
@@ -55,6 +57,8 @@ Item {
   property int maxQueryChars: 200
   // Editor mode: false = write (plain text), true = rendered markdown preview.
   property bool previewOn: true
+  // True during the idle gap before auto-render: drives the neon comet.
+  property bool idleWait: false
   // Local changes not yet pushed to the remote (git sync pending).
   property bool unsynced: false
   property string lastSync: ""
@@ -534,12 +538,16 @@ Item {
   // Editing <-> rendered states of the single note area.
   function goEdit() {
     root.previewOn = false
+    root.idleWait = false
+    if (idleTimer) idleTimer.stop()
     Qt.callLater(function() { if (noteEditor) noteEditor.forceActiveFocus() })
   }
 
   function goRendered() {
     if (root.note.trim() === "") { root.goEdit(); return }
     root.previewOn = true
+    root.idleWait = false
+    if (idleTimer) idleTimer.stop()
     Qt.callLater(function() { if (renderArea) renderArea.forceActiveFocus() })
   }
 
@@ -1066,6 +1074,23 @@ Item {
     }
   }
 
+  // Tracks a real pause while editing (separate from the 5s render timer):
+  // after ~0.7s without a key the neon comet signals "about to render".
+  Timer {
+    id: idleTimer
+    interval: 700
+    repeat: false
+    onTriggered: {
+      root.idleWait = !!(noteEditor && noteEditor.visible
+                         && root.note.trim() !== "" && !root.previewOn)
+    }
+  }
+
+  function noteTyped() {
+    root.idleWait = false
+    if (idleTimer) idleTimer.restart()
+  }
+
   Timer {
     id: searchTimer
     interval: 150
@@ -1581,6 +1606,7 @@ Item {
 
                   onTextChanged: {
                     root.note = noteEditor.text
+                    root.noteTyped()
                     if (root.note.trim() !== "" && renderTimer) renderTimer.restart()
                   }
 
@@ -1640,7 +1666,11 @@ Item {
                   anchors.fill: parent
                   radius: root.textBoxRadius
                   neonColor: root.neonColor
-                  baseOpacity: noteEditor._focused ? 1.0 : 0.32
+                  duration: 2800
+                  active: root.idleWait
+                  baseOpacity: root.idleWait ? 0.95
+                              : (root.previewOn ? 0.2
+                                 : (noteEditor._focused ? 0.45 : 0.22))
                 }
                 // Read-only rich render of the note (auto after a typing pause).
                 TextArea {
