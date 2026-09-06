@@ -443,7 +443,7 @@ Item {
     root.cryptoEnabled = !!payload.encryption
     if (payload.gitRemote) root.gitRemote = String(payload.gitRemote).slice(0, 512)
 
-    root.resetGeometry()
+    root.openGeometry()
     root.opened = true
     root.previewOn = false
     root.startNewNote()
@@ -457,10 +457,13 @@ Item {
     root.ensureCrypto(function() {
       root.cryptoSend({ op: "ping" }, function(res) {
         root.cryptoUnlocked = !!res.unlocked || root.cryptoPlain
-        if (root.cryptoUnlocked) root.reloadNotes()
-        else Qt.callLater(function() { if (lockedView.visible) lockedView.forceActiveFocus() })
-        // Encrypted + locked: keep the dialog on the LOCKED view; the Unlock
-        // button opens the password prompt instead of auto-popping it.
+        if (root.cryptoUnlocked) {
+          root.reloadNotes()
+        } else if (!root.cryptoPlain) {
+          // Locked but was asked to open: ask for the password right away.
+          // The LOCKED screen stays behind the prompt if the user cancels it.
+          Qt.callLater(function() { root.promptPassword() })
+        }
       })
     })
 
@@ -507,6 +510,23 @@ Item {
 
   // Fresh open: the dialog always (re)centers; size is default on first use
   // but keeps the current session's resize/maximize state.
+  function openGeometry() {
+    if (root.maximized) {
+      card.width = root.maxDialogW()
+      card.height = root.maxDialogH()
+      root.winX = 0
+      root.winY = 0
+      return
+    }
+    root.applyDialogSize()
+    // Recenter after the panel/layout settles (a couple of frames later),
+    // otherwise the card could land at the top-left on early opens.
+    Qt.callLater(function() { root.centerCard() })
+    Qt.callLater(function() {
+      Qt.callLater(function() { root.centerCard() })
+    })
+  }
+
   function resetGeometry() {
     root.winX = -1
     root.winY = -1
