@@ -15,10 +15,10 @@ private git remote** — everything optional and configurable per widget.
 - **Window**: opens centered; **Maximize**/Restore in the title bar; the note
   list is compact when restored (more room for writing) and wider when
   maximized. Closed with the × button.
-- **Simple note editor**: the editor is plain text that fills the window —
-  nothing else takes space away from writing. A **Format** toolbar inserts
-  markdown around the selection (bold, italic, code, code block, heading,
-  lists, quote).
+- **Live markdown formatting**: type in the editor and the note is rendered
+  as markdown in real time in the preview below it (headings, bold/italic/
+  code, lists…). A **Format** toolbar inserts markdown around the selection;
+  **Hide/Show preview** reclaims the space when you just want to write.
 - Recent-notes list (newest first) with click-to-edit, keyboard navigation
   (`↑`/`↓`, `Enter` loads, `Alt+Enter` copies, `Ctrl+Enter` saves the editor,
   `Ctrl+Shift+Enter` opens it in your text editor, `Delete` asks before

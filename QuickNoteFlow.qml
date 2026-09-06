@@ -54,7 +54,7 @@ Item {
   property int maxNoteChars: 50000
   property int maxQueryChars: 200
   // Editor mode: false = write (plain text), true = rendered markdown preview.
-  property bool previewOn: false
+  property bool previewOn: true
   // Local changes not yet pushed to the remote (git sync pending).
   property bool unsynced: false
   property string lastSync: ""
@@ -459,7 +459,7 @@ Item {
     if (payload.gitRemote) root.gitRemote = String(payload.gitRemote).slice(0, 512)
 
     root.opened = true
-    root.previewOn = false
+    root.previewOn = true
     root.startNewNote()
     searchField.text = ""
     root.searchText = ""
@@ -531,11 +531,8 @@ Item {
     })
   }
 
-  function setEditorMode(mode) {
-    root.previewOn = mode === "preview"
-    if (!root.previewOn) {
-      Qt.callLater(function() { if (noteEditor) noteEditor.forceActiveFocus() })
-    }
+  function setEditorMode() {
+    Qt.callLater(function() { if (noteEditor) noteEditor.forceActiveFocus() })
   }
 
   /* ---- lightweight markdown -> rich text (all content is HTML-escaped
@@ -1486,12 +1483,22 @@ Item {
                 Button { text: "•"; fontFamily: root.fontFamily; tooltipText: "Bullet list (- )"; onClicked: root.formatBullet() }
                 Button { text: "1."; fontFamily: root.fontFamily; tooltipText: "Numbered list (1. )"; onClicked: root.formatNumbered() }
                 Button { text: "❝"; fontFamily: root.fontFamily; tooltipText: "Quote (> )"; onClicked: root.formatQuote() }
+                Item { Layout.preferredWidth: Style.spacing.lg }
+                Button {
+                  text: root.previewOn ? "Hide preview" : "Show preview"
+                  fontFamily: root.fontFamily
+                  active: root.previewOn
+                  tooltipText: "Show/hide the live markdown preview"
+                  onClicked: root.previewOn = !root.previewOn
+                }
               }
 
               Item {
                 id: editorSlot
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                Layout.preferredHeight: 400
+                Layout.minimumHeight: 120
                 // Solid box behind the editor (TextArea background doesn't
                 // paint reliably, so the fill lives here as a sibling). The
                 // thin neon border also lives here, not on the comet overlay.
@@ -1594,6 +1601,53 @@ Item {
                   baseOpacity: noteEditor._focused ? 1.0 : 0.32
                 }
             }
+
+              // Live rendered markdown preview (updates while you type).
+              Item {
+                id: previewPane
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.preferredHeight: 230
+                Layout.minimumHeight: 90
+                visible: root.previewOn
+                clip: true
+
+                BorderSurface {
+                  anchors.fill: parent
+                  radius: root.textBoxRadius
+                  color: Qt.darker(root.background, 1.12)
+                  borderSpec: Border.flat(
+                    Qt.rgba(root.neonColor.r, root.neonColor.g, root.neonColor.b, 0.22),
+                    Math.max(1, Style.hairline))
+                }
+
+                Flickable {
+                  id: previewFlick
+                  anchors.fill: parent
+                  anchors.margins: Style.space(8)
+                  clip: true
+                  contentWidth: width
+                  contentHeight: previewArea.contentHeight
+                  boundsBehavior: Flickable.StopAtBounds
+
+                  TextArea {
+                    id: previewArea
+                    width: previewFlick.width
+                    text: root.mdToHtml(root.note)
+                    textFormat: Text.RichText
+                    readOnly: true
+                    wrapMode: Text.WrapAnywhere
+                    color: root.foreground
+                    selectionColor: Style.selectionFillFor(root.foreground, Color.accent)
+                    selectedTextColor: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    background: null
+                    selectByMouse: true
+                  }
+                }
+              }
+
 
 
 
@@ -1894,6 +1948,7 @@ Item {
                          "· <b>Ctrl+Shift+Enter</b> — open in your text editor<br/>" +
                          "· <b>Esc</b> — close<br/>" +
                          "· <b>Format bar</b> — insert markdown (bold, heading, code…)<br/>" +
+                         "· <b>Show/Hide preview</b> — toggle the live markdown view<br/>" +
                          "· <b>Maximize</b> (title bar) — fill the screen"
                 }
               }
