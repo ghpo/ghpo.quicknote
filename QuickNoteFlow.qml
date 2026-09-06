@@ -608,7 +608,13 @@ Item {
         i++
         continue
       }
-      if (raw.trim() === "") { i++; continue }
+      if (raw.trim() === "") {
+        // Keep typed blank lines visible: one break per empty line between
+        // content (so a double Enter shows as a blank line in the preview).
+        if (out.length > 0 && i < lines.length - 1) out.push("<br/>")
+        i++
+        continue
+      }
       out.push(mdInline(escHtml(raw)))
       i++
       if (i < lines.length) out.push("<br/>")
@@ -731,10 +737,8 @@ Item {
     root.previewOn = true   // open the selected note already rendered
     root.cursorActive = true
     noteList.currentIndex = index
-    Qt.callLater(function() {
-      root.setEditorMode("preview")
-      noteList.forceActiveFocus()
-    })
+    root.setEditorMode("preview")
+    Qt.callLater(function() { noteEditor.forceActiveFocus() })
   }
 
   function copyIndex(index) {
@@ -1451,44 +1455,13 @@ Item {
                 }
               }
 
-              // Write / Markdown-preview toggle above the editor.
-              RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: Style.spacing.xs
-                spacing: Style.spacing.xs
-                visible: !root.isLocked
-
-                Text {
-                  text: "Mode"
-                  color: Qt.darker(root.foreground, 1.7)
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  verticalAlignment: Text.AlignVCenter
-                }
-                Item { Layout.fillWidth: true }
-                Button {
-                  text: "Write"
-                  fontFamily: root.fontFamily
-                  active: !root.previewOn
-                  tooltipText: "Plain-text editor"
-                  onClicked: root.setEditorMode("write")
-                }
-                Button {
-                  text: "Preview"
-                  fontFamily: root.fontFamily
-                  active: root.previewOn
-                  tooltipText: "Render the note as markdown"
-                  onClicked: root.setEditorMode("preview")
-                }
-              }
-
               // Formatting toolbar (write mode): inserts markdown around the
               // selection or at the cursor.
               RowLayout {
                 Layout.fillWidth: true
                 Layout.topMargin: Style.spacing.xs
                 spacing: Style.spacing.xs
-                visible: !root.isLocked && !root.previewOn
+                visible: !root.isLocked
 
                 Text {
                   text: "Format"
@@ -1508,10 +1481,36 @@ Item {
                 Button { text: "❝"; fontFamily: root.fontFamily; tooltipText: "Quote (> )"; onClicked: root.formatQuote() }
               }
 
+              // Live markdown preview toggle.
+              RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Style.spacing.xs
+                spacing: Style.spacing.xs
+                visible: !root.isLocked
+
+                Text {
+                  text: "Live preview"
+                  color: Qt.darker(root.foreground, 1.7)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  verticalAlignment: Text.AlignVCenter
+                }
+                Item { Layout.fillWidth: true }
+                Button {
+                  text: root.previewOn ? "Hide preview" : "Show preview"
+                  fontFamily: root.fontFamily
+                  active: root.previewOn
+                  tooltipText: "Show or hide the live rendered preview below the editor"
+                  onClicked: root.previewOn = !root.previewOn
+                }
+              }
+
               Item {
                 id: editorSlot
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                Layout.preferredHeight: 340
+                Layout.minimumHeight: 120
                 // Solid box behind the editor (TextArea background doesn't
                 // paint reliably, so the fill lives here as a sibling). The
                 // thin neon border also lives here, not on the comet overlay.
@@ -1530,7 +1529,6 @@ Item {
                   id: noteEditor
                   anchors.fill: parent
                   clip: true
-                  visible: !root.previewOn
 
                   text: root.note
                   placeholderText: "Type your note...  (Enter = new line, Ctrl+Enter = save)"
@@ -1602,20 +1600,45 @@ Item {
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   wrapMode: Text.WordWrap
-                  visible: root.note.trim() === "" && !root.previewOn
+                  visible: root.note.trim() === ""
                   z: 2
                 }
 
 
               }
-                // Rendered markdown preview (read-only). Rendered with a
-                // TextArea (same control as the writer) so it always paints.
+                NeonBorder {
+                  id: editorNeon
+                  anchors.fill: parent
+                  radius: root.textBoxRadius
+                  neonColor: root.neonColor
+                  baseOpacity: noteEditor._focused ? 1.0 : 0.32
+                }
+            }
+
+              // Live rendered markdown preview, below the editor.
+              Item {
+                id: previewPane
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.preferredHeight: 200
+                Layout.minimumHeight: 90
+                visible: root.previewOn
+                clip: true
+
+                BorderSurface {
+                  anchors.fill: parent
+                  radius: root.textBoxRadius
+                  color: Qt.darker(root.background, 1.12)
+                  borderSpec: Border.flat(
+                    Qt.rgba(root.neonColor.r, root.neonColor.g, root.neonColor.b, 0.22),
+                    Math.max(1, Style.hairline))
+                }
+
                 Flickable {
                   id: previewFlick
                   anchors.fill: parent
                   anchors.margins: Style.space(8)
                   clip: true
-                  visible: root.previewOn
                   contentWidth: width
                   contentHeight: previewArea.contentHeight
                   boundsBehavior: Flickable.StopAtBounds
@@ -1635,28 +1658,9 @@ Item {
                     background: null
                     selectByMouse: true
                   }
-
-                  Keys.priority: Keys.BeforeItem
-                  Keys.onPressed: function(event) {
-                    if (root.modalKey(event)) return
-                    if (event.key === Qt.Key_Escape) {
-                      root.dismiss()
-                      event.accepted = true
-                    } else if ((event.key === Qt.Key_P) && (event.modifiers & Qt.AltModifier)) {
-                      root.setEditorMode("write")
-                      event.accepted = true
-                    }
-                  }
                 }
+              }
 
-                NeonBorder {
-                  id: editorNeon
-                  anchors.fill: parent
-                  radius: root.textBoxRadius
-                  neonColor: root.neonColor
-                  baseOpacity: noteEditor._focused ? 1.0 : 0.32
-                }
-            }
           }
         }
       }
@@ -1953,7 +1957,7 @@ Item {
                          "· <b>Ctrl+Enter</b> — save<br/>" +
                          "· <b>Ctrl+Shift+Enter</b> — open in your text editor<br/>" +
                          "· <b>Esc</b> — close<br/>" +
-                         "· <b>Write / Preview</b> — render the note as markdown<br/>" +
+                         "· <b>Show/Hide preview</b> — toggle the live markdown view below the editor<br/>" +
                          "· <b>Maximize</b> (title bar) — fill the screen"
                 }
               }
