@@ -78,6 +78,12 @@ Item {
   // Movable dialog: -1 = not placed yet (center on next open).
   property real winX: -1
   property real winY: -1
+  // Resizable / maximizable window geometry (0 = use the default size).
+  property bool maximized: false
+  property real dialogW: 0
+  property real dialogH: 0
+  property real savedW: 0
+  property real savedH: 0
 
   // Helper scripts ship inside the plugin, so a checkout works anywhere.
   readonly property string sourceDir: {
@@ -430,6 +436,7 @@ Item {
     root.cryptoEnabled = !!payload.encryption
     if (payload.gitRemote) root.gitRemote = String(payload.gitRemote).slice(0, 512)
 
+    root.resetGeometry()
     root.opened = true
     root.previewOn = false
     root.startNewNote()
@@ -466,13 +473,71 @@ Item {
       root.shell.hide((root.manifest && root.manifest.id) || "ghpo.quicknote")
   }
 
-  // Dialog is movable by dragging its title bar. -1 means "not placed yet",
-  // so opening (or a resize) centers it; otherwise the position is kept for
-  // the rest of the shell session (the overlay stays loaded between opens).
+  // The dialog always opens centered at its default size (fresh open resets
+  // position). The user can then drag it, resize it or maximize it for the
+  // rest of the shell session.
   function cardCenter() {
     var cx = Math.max(0, Math.round((panel.width - card.width) / 2))
     var cy = Math.max(0, Math.round((panel.height - card.height) / 2))
     return Qt.point(cx, cy)
+  }
+
+  function maxDialogW() { return Math.max(0, panel.width - root.contentMargin * 2) }
+  function maxDialogH() { return Math.max(0, panel.height - root.contentMargin * 2) }
+
+  function applyDialogSize() {
+    if (root.maximized) {
+      card.width = root.maxDialogW()
+      card.height = root.maxDialogH()
+    } else {
+      var w = root.dialogW > 0 ? root.dialogW : root.cardWidth
+      var h = root.dialogH > 0 ? root.dialogH : root.cardHeight
+      card.width = Math.max(560, Math.min(root.maxDialogW(), w))
+      card.height = Math.max(380, Math.min(root.maxDialogH(), h))
+    }
+    root.clampCard()
+  }
+
+  // Fresh open: the dialog always (re)centers; size is default on first use
+  // but keeps the current session's resize/maximize state.
+  function resetGeometry() {
+    root.winX = -1
+    root.winY = -1
+    if (root.maximized) {
+      card.width = root.maxDialogW()
+      card.height = root.maxDialogH()
+      root.winX = 0
+      root.winY = 0
+      return
+    }
+    root.applyDialogSize()
+    Qt.callLater(function() { root.clampCard() })
+  }
+
+  function toggleMaximize() {
+    if (root.maximized) {
+      root.maximized = false
+      root.winX = -1
+      root.winY = -1
+    } else {
+      root.savedW = card.width
+      root.savedH = card.height
+      root.maximized = true
+    }
+    root.applyDialogSize()
+    root.clampCard()
+  }
+
+  function resizeCardBy(dx, dy) {
+    if (root.maximized) return
+    var w = Math.max(560, Math.min(root.maxDialogW(), card.width + dx))
+    var h = Math.max(380, Math.min(root.maxDialogH(), card.height + dy))
+    root.dialogW = w
+    root.dialogH = h
+    card.width = w
+    card.height = h
+    // Keep the card on screen while resizing from the bottom-right corner.
+    root.clampCard()
   }
 
   function clampCard() {
@@ -492,6 +557,7 @@ Item {
   }
 
   function dragCardBy(dx, dy) {
+    if (root.maximized) return
     var c = root.cardCenter()
     var maxX = Math.max(c.x, panel.width - card.width)
     var maxY = Math.max(c.y, panel.height - card.height)
@@ -509,6 +575,7 @@ Item {
   function startNewNote() {
     root.editingFile = ""
     root.note = ""
+    root.previewOn = false
     Qt.callLater(function() { noteEditor.forceActiveFocus() })
   }
 
@@ -520,6 +587,134 @@ Item {
       Qt.callLater(function() { if (noteEditor) noteEditor.forceActiveFocus() })
     }
   }
+
+  /* ---- lightweight markdown -> rich text (all content is HTML-escaped
+   * first, so notes can never inject markup). Covers the basic set used by
+   * the toolbar: headings, bold/italic/code, code blocks, lists, quotes,
+   * rules and links. ---- */
+  function escHtml(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+  }
+
+  function mdInline(s) {
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
+    s = s.replace(/\*([^*\n]+)\*/g, "<i>$1</i>")
+    s = s.replace(/`([^`\n]+)`/g, "<font color=\"#8fd0ea\">$1</font>")
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)\]]+)\)/g,
+      '<a href="$2">$1</a>')
+    return s
+  }
+
+  function mdToHtml(src) {
+    var dim = Qt.darker(root.foreground, 1.5)
+    var lines = String(src || "").split("\n")
+    var out = []
+    var i = 0
+    while (i < lines.length) {
+      var raw = lines[i]
+      var t = raw.replace(/^[ \t]+/, "")
+      if (t.indexOf("```") === 0) {
+        i++
+        var buf = []
+        while (i < lines.length && lines[i].indexOf("```") !== 0) {
+          buf.push(escHtml(lines[i]))
+          i++
+        }
+        if (i < lines.length) i++
+        out.push('<div style="color:#9fd8f0;background:rgba(255,255,255,0.05);' +
+          'border-radius:6px;padding:6px 8px">' + buf.join("<br/>") + "</div>")
+        continue
+      }
+      var hm = t.match(/^(#{1,6})\s+(.*)$/)
+      if (hm) {
+        var lvl = hm[1].length
+        var fs = lvl === 1 ? 5 : lvl === 2 ? 4 : 3
+        out.push('<font size="' + fs + '"><b><font color="' + root.foreground +
+          '">' + mdInline(escHtml(hm[2])) + "</font></b></font>")
+        i++
+        continue
+      }
+      if (/^([-*_])\1{2,}\s*$/.test(t)) { out.push("<hr/>"); i++; continue }
+      var lm = t.match(/^[-*•]\s+(.*)$/)
+      if (lm) {
+        out.push("<ul>")
+        while (i < lines.length) {
+          var tt = lines[i].replace(/^[ \t]+/, "")
+          var mm = tt.match(/^[-*•]\s+(.*)$/)
+          if (!mm) break
+          out.push("<li>" + mdInline(escHtml(mm[1])) + "</li>")
+          i++
+        }
+        out.push("</ul>")
+        continue
+      }
+      var om = t.match(/^\d+[.)]\s+(.*)$/)
+      if (om) {
+        out.push("<ol>")
+        while (i < lines.length) {
+          var tt2 = lines[i].replace(/^[ \t]+/, "")
+          var mm2 = tt2.match(/^\d+[.)]\s+(.*)$/)
+          if (!mm2) break
+          out.push("<li>" + mdInline(escHtml(mm2[1])) + "</li>")
+          i++
+        }
+        out.push("</ol>")
+        continue
+      }
+      if (/^>\s?/.test(t)) {
+        out.push('<font color="' + dim + '">' + mdInline(escHtml(t.replace(/^>\s?/, ""))) + "</font>")
+        i++
+        continue
+      }
+      if (raw.trim() === "") { i++; continue }
+      out.push(mdInline(escHtml(raw)))
+      i++
+      if (i < lines.length) out.push("<br/>")
+    }
+    return out.join("")
+  }
+
+  /* ---- editor formatting toolbar ---- */
+  function editorText() { return noteEditor.text }
+
+  function editorWrap(prefix, suffix) {
+    var ta = noteEditor
+    if (!ta) return
+    var txt = ta.text
+    var sel = ta.selectedText || ""
+    var len = sel.length
+    var start = ta.cursorPosition
+    if (len > 0 && txt.substr(start - len, len) === sel) start -= len
+    var end = start + len
+    ta.text = txt.slice(0, start) + prefix + sel + suffix + txt.slice(end)
+    Qt.callLater(function() {
+      ta.cursorPosition = start + prefix.length + len
+      ta.forceActiveFocus()
+    })
+  }
+
+  function editorLinePrefix(pfx) {
+    var ta = noteEditor
+    if (!ta) return
+    var pos = ta.cursorPosition
+    var txt = ta.text
+    var ls = txt.lastIndexOf("\n", pos - 1) + 1
+    ta.text = txt.slice(0, ls) + pfx + txt.slice(ls)
+    Qt.callLater(function() {
+      ta.cursorPosition = pos + pfx.length
+      ta.forceActiveFocus()
+    })
+  }
+
+  function formatBold() { root.editorWrap("**", "**") }
+  function formatItalic() { root.editorWrap("*", "*") }
+  function formatInlineCode() { root.editorWrap("`", "`") }
+  function formatCodeBlock() { root.editorWrap("```\n", "\n```") }
+  function formatHeading() { root.editorLinePrefix("## ") }
+  function formatBullet() { root.editorLinePrefix("- ") }
+  function formatNumbered() { root.editorLinePrefix("1. ") }
+  function formatQuote() { root.editorLinePrefix("> ") }
 
   function reloadNotes() {
     root.cryptoSend({ op: "list", limit: root.listLimit }, function(res) {
@@ -580,9 +775,13 @@ Item {
     var row = notesModel.get(index)
     root.editingFile = row.path
     root.note = row.content
+    root.previewOn = true   // open the selected note already rendered
     root.cursorActive = true
     noteList.currentIndex = index
-    Qt.callLater(function() { noteEditor.forceActiveFocus() })
+    Qt.callLater(function() {
+      root.setEditorMode("preview")
+      noteList.forceActiveFocus()
+    })
   }
 
   function copyIndex(index) {
@@ -895,13 +1094,16 @@ Item {
 
     BorderSurface {
       id: card
-      width: root.cardWidth
-      height: root.cardHeight
-      radius: root.cornerRadius
       x: root.winX
       y: root.winY
+      radius: root.cornerRadius
       color: root.background
       borderSpec: root.borderSpec
+      opacity: root.opened ? 1 : 0
+      scale: root.opened ? 1 : 0.96
+
+      Behavior on opacity { NumberAnimation { duration: 120 } }
+      Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
       padding: root.contentMargin
 
       // Clicks on the card do not reach the scrim; presses started over the
@@ -952,11 +1154,27 @@ Item {
           }
 
           Text {
-            text: "drag to move · double-click to center"
+            text: root.maximized ? "maximized · double-click title to restore"
+                                 : "drag to move · drag corner to resize"
             color: Qt.darker(root.foreground, 1.8)
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
             verticalAlignment: Text.AlignVCenter
+          }
+
+          Button {
+            text: root.maximized ? "Restore" : "Maximize"
+            fontFamily: root.fontFamily
+            tooltipText: "Fill the screen / restore the previous size"
+            onClicked: root.toggleMaximize()
+          }
+
+          Button {
+            text: "×"
+            fontFamily: root.fontFamily
+            active: true
+            tooltipText: "Close"
+            onClicked: root.dismiss()
           }
         }
 
@@ -1291,6 +1509,32 @@ Item {
                 }
               }
 
+              // Formatting toolbar (write mode): inserts markdown around the
+              // selection or at the cursor.
+              RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Style.spacing.xs
+                spacing: Style.spacing.xs
+                visible: !root.isLocked && !root.previewOn
+
+                Text {
+                  text: "Format"
+                  color: Qt.darker(root.foreground, 1.7)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  verticalAlignment: Text.AlignVCenter
+                }
+                Item { Layout.fillWidth: true }
+                Button { text: "B"; fontFamily: root.fontFamily; tooltipText: "Bold (markdown **bold**)"; onClicked: root.formatBold() }
+                Button { text: "I"; fontFamily: root.fontFamily; tooltipText: "Italic (markdown *italic*)"; onClicked: root.formatItalic() }
+                Button { text: "</>"; fontFamily: root.fontFamily; tooltipText: "Inline code (`code`)"; onClicked: root.formatInlineCode() }
+                Button { text: "{ }"; fontFamily: root.fontFamily; tooltipText: "Code block (``` ```)"; onClicked: root.formatCodeBlock() }
+                Button { text: "H"; fontFamily: root.fontFamily; tooltipText: "Heading (## at line start)"; onClicked: root.formatHeading() }
+                Button { text: "•"; fontFamily: root.fontFamily; tooltipText: "Bullet list (- )"; onClicked: root.formatBullet() }
+                Button { text: "1."; fontFamily: root.fontFamily; tooltipText: "Numbered list (1. )"; onClicked: root.formatNumbered() }
+                Button { text: "❝"; fontFamily: root.fontFamily; tooltipText: "Quote (> )"; onClicked: root.formatQuote() }
+              }
+
               Item {
                 id: editorSlot
                 Layout.fillWidth: true
@@ -1394,8 +1638,8 @@ Item {
                   Text {
                     id: previewText
                     width: previewFlick.width
-                    text: root.note
-                    textFormat: Text.MarkdownText
+                    text: root.mdToHtml(root.note)
+                    textFormat: Text.RichText
                     color: root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
@@ -1409,11 +1653,9 @@ Item {
                     if (event.key === Qt.Key_Escape) {
                       root.dismiss()
                       event.accepted = true
-                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                      if (!(event.modifiers & Qt.ShiftModifier)) {
-                        root.saveAndClose()
-                        event.accepted = true
-                      }
+                    } else if ((event.key === Qt.Key_P) && (event.modifiers & Qt.AltModifier)) {
+                      root.setEditorMode("write")
+                      event.accepted = true
                     }
                   }
                 }
@@ -2181,6 +2423,28 @@ Item {
             }
           }
         }
+      // Corner resize handle (bottom-right).
+      MouseArea {
+        id: resizeHandle
+        visible: root.opened && !root.maximized
+                 && !root.passwordOpen && !root.changeOpen && !root.syncOpen
+                 && !root.helpOpen && !root.deleteConfirmOpen
+        width: Style.space(16)
+        height: Style.space(16)
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: Math.max(0, root.contentMargin - 12)
+        anchors.bottomMargin: Math.max(0, root.contentMargin - 12)
+        cursorShape: Qt.SizeFDiagCursor
+        acceptedButtons: Qt.LeftButton
+        property point down
+        onPressed: function(m) { resizeHandle.down = Qt.point(m.x, m.y) }
+        onPositionChanged: function(m) {
+          root.resizeCardBy(m.x - resizeHandle.down.x, m.y - resizeHandle.down.y)
+        }
+      }
+
+
     }
   }
 }

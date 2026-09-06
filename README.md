@@ -11,10 +11,13 @@ private git remote** — everything optional and configurable per widget.
 ## Features
 
 - One-keynote dialog: type, `Enter` saves, `Shift+Enter` adds a newline.
-- **Movable window**: drag the title bar to place the dialog anywhere (it keeps
-  its spot for the session); double-click the title to center it.
-- **Markdown preview**: switch the editor between **Write** and **Preview**
-  (renders `#`, `**bold**`, lists, etc.).
+- **Resizable window**: the dialog opens centered and can be dragged by the
+  title bar, resized from the bottom-right corner, or maximized/restored and
+  closed with the title-bar buttons.
+- **Markdown preview**: the editor has a **Format** toolbar (bold, italic,
+  code, code block, heading, lists, quote) and a **Write / Preview** toggle
+  that renders the note (headings, bold/italic/code, code blocks, lists,
+  quotes, links). Opening a note from the list shows it already rendered.
 - Recent-notes list (newest first) with click-to-edit, keyboard navigation
   (`↑`/`↓`, `Enter` loads, `Alt+Enter` copies, `Ctrl+Enter` opens in your
   editor, `Delete` asks before removing).
