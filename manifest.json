@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ghpo.quicknote",
   "name": "Crypto Notes",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "author": "ghpo",
   "description": "Crypto Notes button + dialog with optional encrypted storage (XChaCha20-Poly1305 + Argon2id), recent-notes list, search, #tags, delete confirmation, change-password re-encryption, and git sync to a private remote",
   "kinds": [
