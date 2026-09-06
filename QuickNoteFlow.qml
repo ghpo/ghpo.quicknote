@@ -82,15 +82,8 @@ Item {
   readonly property int noteRowCompact: Style.space(46)
   readonly property int noteRowHeight: Math.max(Style.space(52), Style.font.body + Style.font.caption + Style.spacing.xxl)
   readonly property int textBoxRadius: Math.max(14, Style.cornerRadius)
-  // Movable dialog: -1 = not placed yet (center on next open).
-  property real winX: -1
-  property real winY: -1
-  // Resizable / maximizable window geometry (0 = use the default size).
+  // Dialog can be maximized (fill the screen) or centered at its default size.
   property bool maximized: false
-  property real dialogW: 0
-  property real dialogH: 0
-  property real savedW: 0
-  property real savedH: 0
 
   // Helper scripts ship inside the plugin, so a checkout works anywhere.
   readonly property string sourceDir: {
@@ -443,14 +436,12 @@ Item {
     root.cryptoEnabled = !!payload.encryption
     if (payload.gitRemote) root.gitRemote = String(payload.gitRemote).slice(0, 512)
 
-    root.openGeometry()
     root.opened = true
     root.previewOn = false
     root.startNewNote()
     searchField.text = ""
     root.searchText = ""
     root.cursorActive = false
-    Qt.callLater(function() { root.clampCard() })
 
     // Start the storage daemon, then load notes (prompts for the password
     // automatically if encryption is on and the key is not in RAM).
@@ -486,113 +477,9 @@ Item {
   // The dialog always opens centered at its default size (fresh open resets
   // position). The user can then drag it, resize it or maximize it for the
   // rest of the shell session.
-  function cardCenter() {
-    var cx = Math.max(0, Math.round((panel.width - card.width) / 2))
-    var cy = Math.max(0, Math.round((panel.height - card.height) / 2))
-    return Qt.point(cx, cy)
-  }
-
-  function maxDialogW() { return Math.max(0, panel.width - root.contentMargin * 2) }
-  function maxDialogH() { return Math.max(0, panel.height - root.contentMargin * 2) }
-
-  function applyDialogSize() {
-    if (root.maximized) {
-      card.width = root.maxDialogW()
-      card.height = root.maxDialogH()
-    } else {
-      var w = root.dialogW > 0 ? root.dialogW : root.cardWidth
-      var h = root.dialogH > 0 ? root.dialogH : root.cardHeight
-      card.width = Math.max(560, Math.min(root.maxDialogW(), w))
-      card.height = Math.max(380, Math.min(root.maxDialogH(), h))
-    }
-    root.clampCard()
-  }
-
-  // Fresh open: the dialog always (re)centers; size is default on first use
-  // but keeps the current session's resize/maximize state.
-  function openGeometry() {
-    if (root.maximized) {
-      card.width = root.maxDialogW()
-      card.height = root.maxDialogH()
-      root.winX = 0
-      root.winY = 0
-      return
-    }
-    root.applyDialogSize()
-    // Recenter after the panel/layout settles (a couple of frames later),
-    // otherwise the card could land at the top-left on early opens.
-    Qt.callLater(function() { root.centerCard() })
-    Qt.callLater(function() {
-      Qt.callLater(function() { root.centerCard() })
-    })
-  }
-
-  function resetGeometry() {
-    root.winX = -1
-    root.winY = -1
-    if (root.maximized) {
-      card.width = root.maxDialogW()
-      card.height = root.maxDialogH()
-      root.winX = 0
-      root.winY = 0
-      return
-    }
-    root.applyDialogSize()
-    Qt.callLater(function() { root.clampCard() })
-  }
-
-  function toggleMaximize() {
-    if (root.maximized) {
-      root.maximized = false
-      root.winX = -1
-      root.winY = -1
-    } else {
-      root.savedW = card.width
-      root.savedH = card.height
-      root.maximized = true
-    }
-    root.applyDialogSize()
-    root.clampCard()
-  }
-
-  function resizeCardBy(dx, dy) {
-    if (root.maximized) return
-    var w = Math.max(560, Math.min(root.maxDialogW(), card.width + dx))
-    var h = Math.max(380, Math.min(root.maxDialogH(), card.height + dy))
-    root.dialogW = w
-    root.dialogH = h
-    card.width = w
-    card.height = h
-    // Keep the card on screen while resizing from the bottom-right corner.
-    root.clampCard()
-  }
-
-  function clampCard() {
-    var c = root.cardCenter()
-    var maxX = Math.max(c.x, panel.width - card.width)
-    var maxY = Math.max(c.y, panel.height - card.height)
-    if (root.winX < 0) root.winX = c.x
-    if (root.winY < 0) root.winY = c.y
-    root.winX = Math.max(0, Math.min(maxX, root.winX))
-    root.winY = Math.max(0, Math.min(maxY, root.winY))
-  }
-
-  function centerCard() {
-    var c = root.cardCenter()
-    root.winX = c.x
-    root.winY = c.y
-  }
-
-  function dragCardBy(dx, dy) {
-    if (root.maximized) return
-    var c = root.cardCenter()
-    var maxX = Math.max(c.x, panel.width - card.width)
-    var maxY = Math.max(c.y, panel.height - card.height)
-    var nx = root.winX < 0 ? c.x : root.winX
-    var ny = root.winY < 0 ? c.y : root.winY
-    root.winX = Math.max(0, Math.min(maxX, nx + dx))
-    root.winY = Math.max(0, Math.min(maxY, ny + dy))
-  }
+  // Card is centered and can be maximized; geometry is handled by
+  // width/height bindings + anchors, no imperative positioning.
+  function toggleMaximize() { root.maximized = !root.maximized }
 
   function toggle() {
     if (root.opened) root.dismiss()
@@ -1121,41 +1008,23 @@ Item {
 
     BorderSurface {
       id: card
-      x: root.winX
-      y: root.winY
+      width: root.maximized ? Math.max(0, panel.width - root.contentMargin * 2)
+                            : root.cardWidth
+      height: root.maximized ? Math.max(0, panel.height - root.contentMargin * 2)
+                             : root.cardHeight
+      anchors.centerIn: parent
       radius: root.cornerRadius
       color: root.background
       borderSpec: root.borderSpec
       opacity: root.opened ? 1 : 0
-      scale: root.opened ? 1 : 0.96
 
       Behavior on opacity { NumberAnimation { duration: 120 } }
-      Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+      Behavior on width { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+      Behavior on height { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
       padding: root.contentMargin
 
-      // Clicks on the card do not reach the scrim; presses started over the
-      // title bar drag the whole dialog; double-click on the title centers it.
-      MouseArea {
-        id: cardArea
-        anchors.fill: parent
-        property bool dragging: false
-        property point down
-        readonly property real titleBandY: {
-          if (!titleRow || !card) return 40
-          return titleRow.mapToItem(card, 0, 0).y + titleRow.height
-        }
-        onPressed: function(m) {
-          dragging = m.y <= titleBandY
-          down = Qt.point(m.x, m.y)
-        }
-        onPositionChanged: function(m) {
-          if (dragging) root.dragCardBy(m.x - down.x, m.y - down.y)
-        }
-        onReleased: function() { dragging = false }
-        onDoubleClicked: function(m) {
-          if (m.y <= titleBandY) root.centerCard()
-        }
-      }
+      // Clicks on the card do not reach the scrim behind it.
+      MouseArea { anchors.fill: parent; onClicked: {} }
 
       ColumnLayout {
         anchors.fill: parent
@@ -1180,20 +1049,11 @@ Item {
             elide: Text.ElideRight
           }
 
-          Text {
-            text: root.maximized ? "maximized · double-click title to restore"
-                                 : "drag to move · drag corner to resize"
-            color: Qt.darker(root.foreground, 1.8)
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            verticalAlignment: Text.AlignVCenter
-          }
-
           Button {
             text: root.maximized ? "Restore" : "Maximize"
             fontFamily: root.fontFamily
-            tooltipText: "Fill the screen / restore the previous size"
-            onClicked: root.toggleMaximize()
+            tooltipText: "Fill the screen / back to normal size"
+            onClicked: root.maximized = !root.maximized
           }
 
           Button {
@@ -1678,7 +1538,8 @@ Item {
                   z: 2
                 }
 
-                // Rendered markdown preview (read-only), replaces the editor.
+                // Rendered markdown preview (read-only). Rendered with a
+                // TextArea (same control as the writer) so it always paints.
                 Flickable {
                   id: previewFlick
                   anchors.fill: parent
@@ -1686,19 +1547,23 @@ Item {
                   clip: true
                   visible: root.previewOn
                   contentWidth: width
-                  contentHeight: previewText.height
+                  contentHeight: previewArea.contentHeight
                   boundsBehavior: Flickable.StopAtBounds
 
-                  Text {
-                    id: previewText
+                  TextArea {
+                    id: previewArea
                     width: previewFlick.width
                     text: root.mdToHtml(root.note)
                     textFormat: Text.RichText
+                    readOnly: true
+                    wrapMode: Text.Wrap
                     color: root.foreground
+                    selectionColor: Style.selectionFillFor(root.foreground, Color.accent)
+                    selectedTextColor: root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
-                    linkColor: Color.accent
-                    wrapMode: Text.Wrap
+                    background: null
+                    selectByMouse: true
                   }
 
                   Keys.priority: Keys.BeforeItem
@@ -2477,26 +2342,6 @@ Item {
             }
           }
         }
-      // Corner resize handle (bottom-right).
-      MouseArea {
-        id: resizeHandle
-        visible: root.opened && !root.maximized
-                 && !root.passwordOpen && !root.changeOpen && !root.syncOpen
-                 && !root.helpOpen && !root.deleteConfirmOpen
-        width: Style.space(16)
-        height: Style.space(16)
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.rightMargin: Math.max(0, root.contentMargin - 12)
-        anchors.bottomMargin: Math.max(0, root.contentMargin - 12)
-        cursorShape: Qt.SizeFDiagCursor
-        acceptedButtons: Qt.LeftButton
-        property point down
-        onPressed: function(m) { resizeHandle.down = Qt.point(m.x, m.y) }
-        onPositionChanged: function(m) {
-          root.resizeCardBy(m.x - resizeHandle.down.x, m.y - resizeHandle.down.y)
-        }
-      }
 
 
     }
