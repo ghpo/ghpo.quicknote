@@ -3,7 +3,9 @@ import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import QtQuick.Layouts
+import QtQuick.Shapes
 import qs.Commons
 import qs.Ui
 
@@ -13,17 +15,34 @@ Item {
   id: root
   component ThinScrollBar: ScrollBar {
     id: bar
-    property color barColor: Qt.rgba(0.75, 0.75, 0.78, 0.55)
+    property color barColor: Qt.rgba(0.78, 0.78, 0.82, 0.85)
     policy: ScrollBar.AlwaysOn
-    implicitWidth: 7
-    implicitHeight: 7
+    implicitWidth: 8
+    implicitHeight: 8
     background: Rectangle { color: "transparent" }
-    contentItem: Rectangle {
-      implicitWidth: 7
-      implicitHeight: 40
-      radius: 3
-      color: bar.barColor
-      opacity: bar.hovered ? 1.0 : 0.8
+    contentItem: Item {
+      implicitWidth: 8
+      implicitHeight: 44
+      Shape {
+        anchors.fill: parent
+        ShapePath {
+          strokeWidth: 0
+          startX: 4
+          startY: 0
+          fillGradient: LinearGradient {
+            x1: 0; y1: 0
+            x2: 8; y2: 0
+            GradientStop { position: 0.0; color: Qt.rgba(0,0,0,0) }
+            GradientStop { position: 0.35; color: bar.barColor }
+            GradientStop { position: 0.7; color: bar.barColor }
+            GradientStop { position: 1.0; color: Qt.rgba(0,0,0,0) }
+          }
+          PathLine { x: 4; y: parent.height }
+          PathArc { x: 0; y: parent.height - 4; radiusX: 4; radiusY: 4 }
+          PathLine { x: 0; y: 4 }
+          PathArc { x: 4; y: 0; radiusX: 4; radiusY: 4 }
+        }
+      }
     }
   }
 
