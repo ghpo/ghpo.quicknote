@@ -1561,6 +1561,8 @@ Item {
                   z: 2
                 }
 
+
+              }
                 // Rendered markdown preview (read-only). Rendered with a
                 // TextArea (same control as the writer) so it always paints.
                 Flickable {
@@ -1609,7 +1611,6 @@ Item {
                   neonColor: root.neonColor
                   baseOpacity: noteEditor._focused ? 1.0 : 0.32
                 }
-              }
             }
           }
         }
