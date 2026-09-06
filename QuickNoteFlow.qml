@@ -1221,6 +1221,15 @@ Item {
           }
 
           Text {
+            text: "Ctrl + Alt + Enter"
+            color: Qt.lighter(Color.accent, 1.05)
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+            verticalAlignment: Text.AlignVCenter
+          }
+
+          Text {
             Layout.preferredWidth: implicitWidth
             text: "v" + ((root.manifest && root.manifest.version) || "")
             color: Qt.darker(root.foreground, 1.8)
@@ -2053,7 +2062,8 @@ Item {
                   font.pixelSize: Style.font.body
                   lineHeight: 1.45
                   wrapMode: Text.WordWrap
-                  text: "<b style='color:" + root.foreground + "'>Crypto Notes</b><br/><br/>" +
+                  text: "<b style='color:" + root.foreground + "'>Crypto Notes</b>  <font color=\"" + root.neonColor + "\">— quick open: Ctrl + Alt + Enter</font><br/><br/>" +
+                        "<b style='color:" + Qt.rgba(0.9,0.95,1,1) + "'>★ Tip:</b> <b>Ctrl+Alt+Enter</b> opens Crypto Notes instantly from anywhere — a keyboard shortcut you will use all the time.<br/><br/>" +
                         "Type in the editor. <b>Enter</b> starts a new line; press <b>Ctrl+Enter</b> (or Save) to save the note as a timestamped .md file in ~/Documents/QuickNotes/.<br/><br/>" +
                         "<b style='color:" + root.foreground + "'>Left panel — recent notes</b><br/>" +
                         "· <b>Enter</b> — loads the note into the editor (Save overwrites)<br/>" +
@@ -2066,6 +2076,7 @@ Item {
                         "<b style='color:" + root.foreground + "'>Categorizing with # (tags)</b><br/>" +
                         "Write #word anywhere in the note text (e.g. #idea, #shopping). The word becomes a tag automatically, shows in blue in the list, and works as a filter: click it or type it in the search to see only the notes with that tag.<br/><br/>" +
                          "<b style='color:" + root.foreground + "'>Shortcuts</b><br/>" +
+                         "· <b>Ctrl + Alt + Enter</b> — quick open Crypto Notes (anywhere)<br/>" +
                          "· <b>Enter</b> — new line<br/>" +
                          "· <b>Ctrl+Enter</b> — save<br/>" +
                          "· <b>Ctrl+Shift+Enter</b> — open in your text editor<br/>" +
