@@ -1887,6 +1887,8 @@ Item {
           onClicked: root.openSync()
         }
 
+        Item { Layout.fillWidth: true }
+
         Button {
           Layout.preferredWidth: implicitWidth
           text: "New"
