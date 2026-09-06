@@ -1298,7 +1298,7 @@ Item {
               id: noteList
               anchors.fill: parent
               anchors.topMargin: Math.round(Style.font.body + Style.spacing.lg)
-              anchors.rightMargin: Style.spacing.lg
+              anchors.rightMargin: Style.space(20)
               clip: true
               ScrollBar.vertical: ThinScrollBar { }
               spacing: Style.space(4)
