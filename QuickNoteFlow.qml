@@ -26,10 +26,17 @@ Item {
   // detect unsaved edits and auto-save before switching notes.
   property string savedContent: ""
 
+  // Single path to show programmatic content: updates root.note and the
+  // editor together (no text<->note binding, which Qt disables on loops).
+  function setNoteText(t) {
+    root.note = t
+    if (noteEditor) noteEditor.text = t
+  }
+
   function clearNewNote() {
     root.editingFile = ""
     root.savedContent = ""
-    root.note = ""
+    root.setNoteText("")
     noteList.currentIndex = -1
     root.setEditorMode("write")
     Qt.callLater(function() { noteEditor.forceActiveFocus() })
@@ -733,7 +740,7 @@ Item {
   function loadNote(row, index) {
     root.editingFile = row.path
     root.savedContent = row.content
-    root.note = row.content
+    root.setNoteText(row.content)
     root.previewOn = true   // open the selected note already rendered
     root.cursorActive = true
     noteList.currentIndex = index
@@ -1504,7 +1511,6 @@ Item {
                   anchors.fill: parent
                   clip: true
 
-                  text: root.note
                   placeholderText: "Type your note...  (Enter = new line, Ctrl+Enter = save)"
                   placeholderTextColor: Qt.darker(root.foreground, 1.6)
 
