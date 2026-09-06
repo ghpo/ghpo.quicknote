@@ -7,8 +7,25 @@ import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
 
+
+
 Item {
   id: root
+  component ThinScrollBar: ScrollBar {
+    id: bar
+    property color barColor: Qt.rgba(0.75, 0.75, 0.78, 0.55)
+    policy: ScrollBar.AlwaysOn
+    implicitWidth: 7
+    implicitHeight: 7
+    background: Rectangle { color: "transparent" }
+    contentItem: Rectangle {
+      implicitWidth: 7
+      implicitHeight: 40
+      radius: 3
+      color: bar.barColor
+      opacity: bar.hovered ? 1.0 : 0.8
+    }
+  }
 
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property string home: Quickshell.env("HOME")
@@ -1594,7 +1611,7 @@ Item {
                    contentWidth: width
                    contentHeight: Math.max(height, noteEditor.contentHeight + 2 * Style.spacing.inputPaddingY)
                    boundsBehavior: Flickable.StopAtBounds
-                   ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                   ScrollBar.vertical: ThinScrollBar { }
 
                    TextEdit {
                      id: noteEditor
@@ -1674,6 +1691,10 @@ Item {
                   anchors.fill: parent
                   radius: root.textBoxRadius
                   neonColor: root.neonColor
+                  glowLength: 12
+                  glowThickness: 2
+                  trailCount: 18
+                  trailLength: 14
                   duration: 2800
                   active: root.idleWait
                   baseOpacity: root.idleWait ? 0.95
