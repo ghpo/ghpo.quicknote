@@ -106,8 +106,11 @@ Item {
   readonly property string quicknoteScript: root.sourceDir + "/quicknote.sh"
 
   function daemonCommand() {
-    var args = [root.quicknoteScript, "--dir", root.notesDir]
+    // The daemon only honours --plain as its FIRST argument, so it must come
+    // before --dir (otherwise plain mode silently runs encrypted + locked).
+    var args = [root.quicknoteScript]
     if (!root.cryptoEnabled) args.push("--plain")
+    args.push("--dir", root.notesDir)
     // setsid: own session/process group so the daemon is isolated.
     return ["setsid"].concat(args)
   }

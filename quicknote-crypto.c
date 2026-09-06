@@ -946,7 +946,11 @@ int main(int argc, char **argv) {
     if (sodium_init() < 0) return 2;
     uid_now = getuid();
     srand((unsigned)(time(NULL) ^ getpid()));
-    if (argc > 1 && strcmp(argv[1], "--plain") == 0) { plain = 1; argv++; argc--; }
+    /* Accept --plain in any position (callers sometimes append it last). */
+    for (int a = 1; a < argc; a++) {
+        if (strcmp(argv[a], "--plain") == 0) { plain = 1; break; }
+    }
+    while (argc > 1 && strcmp(argv[1], "--plain") == 0) { argv++; argc--; }
 
     dir_path[0] = '\0';
     while (argc > 2 && strcmp(argv[1], "--dir") == 0) {
