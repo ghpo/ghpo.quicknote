@@ -1586,91 +1586,89 @@ Item {
                     Math.max(1, Style.hairline))
                 }
 
-                TextArea {
-                  id: noteEditor
-                  anchors.fill: parent
-                  clip: true
-                  visible: !(root.previewOn && root.note.trim() !== "")
+                 Flickable {
+                   id: editorFlick
+                   anchors.fill: parent
+                   visible: !(root.previewOn && root.note.trim() !== "")
+                   clip: true
+                   contentWidth: width
+                   contentHeight: Math.max(height, noteEditor.contentHeight + 2 * Style.spacing.inputPaddingY)
+                   boundsBehavior: Flickable.StopAtBounds
+                   ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
-                  placeholderText: "Type your note...  (Enter = new line, Ctrl+Enter = save)"
-                  placeholderTextColor: Qt.darker(root.foreground, 1.6)
+                   TextEdit {
+                     id: noteEditor
+                     x: Style.spacing.controlPaddingX
+                     y: Style.spacing.inputPaddingY
+                     width: Math.max(40, editorFlick.width - 2 * Style.spacing.controlPaddingX - 10)
+                     color: root.foreground
+                     font.family: root.fontFamily
+                     font.pixelSize: Style.font.body
+                     wrapMode: TextEdit.Wrap
+                     selectionColor: Style.selectionFillFor(root.foreground, Color.accent)
+                     selectedTextColor: root.foreground
+                     selectByMouse: true
+                     selectByKeyboard: true
 
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  color: root.foreground
-                  selectionColor: Style.selectionFillFor(root.foreground, Color.accent)
-                  selectedTextColor: root.foreground
+                     readonly property bool _focused: activeFocus
 
-                  wrapMode: TextEdit.Wrap
+                     onTextChanged: {
+                       root.note = noteEditor.text
+                       root.noteTyped()
+                       if (root.note.trim() !== "" && renderTimer) renderTimer.restart()
+                     }
 
-                  leftPadding: Style.spacing.controlPaddingX + Border.left(_borderSpec)
-                  rightPadding: Style.spacing.controlPaddingX + Border.right(_borderSpec)
-                  topPadding: Style.spacing.inputPaddingY + Border.top(_borderSpec)
-                  bottomPadding: Style.spacing.inputPaddingY + Border.bottom(_borderSpec)
+                     onCursorRectangleChanged: {
+                       var f = editorFlick
+                       var r = noteEditor.cursorRectangle
+                       var top = r.y + f.contentY
+                       if (r.y < f.contentY) f.contentY = Math.max(0, r.y)
+                       else if (r.y + r.height > f.contentY + f.height) {
+                         f.contentY = r.y + r.height - f.height
+                       }
+                     }
 
-                  readonly property bool _focused: activeFocus
-                  readonly property bool _hot: hovered
-                  readonly property var _borderSpec: Border.controlSpec(_focused ? "focus" : (_hot ? "hover-cursor" : "normal"), root.foreground, Color.accent)
+                     Keys.priority: Keys.BeforeItem
+                     Keys.onPressed: function(event) {
+                       if (root.modalKey(event)) return
+                       if (event.key === Qt.Key_Tab) {
+                         if (event.modifiers & Qt.ShiftModifier) searchField.forceActiveFocus()
+                         else noteList.forceActiveFocus()
+                         event.accepted = true
+                       } else if (event.key === Qt.Key_Escape) {
+                         root.dismiss()
+                         event.accepted = true
+                       } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                         if (event.modifiers & Qt.AltModifier) {
+                           root.copyText(root.note)
+                           event.accepted = true
+                         } else if (event.modifiers & Qt.ControlModifier) {
+                           if (event.modifiers & Qt.ShiftModifier) {
+                             root.openFile(root.editingFile)
+                           } else {
+                             root.saveAndClose()
+                           }
+                           event.accepted = true
+                         }
+                       }
+                     }
+                   }
 
-                  background: Rectangle { color: "transparent" }
-
-                  onTextChanged: {
-                    root.note = noteEditor.text
-                    root.noteTyped()
-                    if (root.note.trim() !== "" && renderTimer) renderTimer.restart()
-                  }
-
-                Keys.priority: Keys.BeforeItem
-                Keys.onPressed: function(event) {
-                  if (root.modalKey(event)) return
-                  if (event.key === Qt.Key_Tab) {
-                    // Tab moves out of the editor: forward to the note list,
-                    // Shift+Tab back up to the search box.
-                    if (event.modifiers & Qt.ShiftModifier) searchField.forceActiveFocus()
-                    else noteList.forceActiveFocus()
-                    event.accepted = true
-                  } else if (event.key === Qt.Key_Escape) {
-                    root.dismiss()
-                    event.accepted = true
-                  } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                    if (event.modifiers & Qt.AltModifier) {
-                      // Copy what's in the editor (the loaded note).
-                      root.copyText(root.note)
-                      event.accepted = true
-                    } else if (event.modifiers & Qt.ControlModifier) {
-                      if (event.modifiers & Qt.ShiftModifier) {
-                        // Open the file being edited in the external editor.
-                        root.openFile(root.editingFile)
-                      } else {
-                        root.saveAndClose()
-                      }
-                      event.accepted = true
-                    }
-                    // Plain Enter is left to the editor: it starts a new line
-                    // instead of saving the note.
-                  }
-                }
-
-                // Manual placeholder: the QQC placeholder is broken by the
-                // transparent-background override, so render it ourselves.
-                Text {
-                  id: editorPlaceholder
-                  anchors.fill: noteEditor
-                  anchors.leftMargin: noteEditor.leftPadding
-                  anchors.topMargin: noteEditor.topPadding
-                  anchors.rightMargin: noteEditor.rightPadding
-                  anchors.bottomMargin: noteEditor.bottomPadding
-                  text: "Type your note...  (Enter = new line, Ctrl+Enter = save)"
-                  color: Qt.darker(root.foreground, 1.4)
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  wrapMode: Text.WordWrap
-                  visible: root.note.trim() === ""
-                  z: 2
-                }
-
-
-              }
+                   // Manual placeholder (TextEdit has none), above the text.
+                   Text {
+                     id: editorPlaceholder
+                     x: Style.spacing.controlPaddingX
+                     y: Style.spacing.inputPaddingY
+                     width: noteEditor.width
+                     text: "Type your note...  (Enter = new line, Ctrl+Enter = save)"
+                     color: Qt.darker(root.foreground, 1.4)
+                     font.family: root.fontFamily
+                     font.pixelSize: Style.font.body
+                     wrapMode: Text.WordWrap
+                     visible: root.note.trim() === ""
+                     z: 2
+                   }
+                 }
                 NeonBorder {
                   id: editorNeon
                   anchors.fill: parent
