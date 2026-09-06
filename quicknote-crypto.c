@@ -509,6 +509,7 @@ static void cmd_save(const char *content, const char *edit_name) {
     int blank = 1;
     for (size_t i = 0; i < clen; i++) if (!isspace((unsigned char)content[i])) { blank = 0; break; }
     if (blank) { resp_begin_ok(); resp_end(); return; }
+    const char *published = NULL;
 
     unsigned char *blob;
     size_t blen;
@@ -539,6 +540,7 @@ static void cmd_save(const char *content, const char *edit_name) {
         if (renameat(dfd, tmpname, dfd, edit_name) < 0) {
             unlinkat(dfd, tmpname, 0); close(dfd); resp_error("rename failed"); return;
         }
+        published = edit_name;
     } else {
         char final[128];
         time_t now = time(NULL);
@@ -555,10 +557,16 @@ static void cmd_save(const char *content, const char *edit_name) {
             }
             if (!ok) { unlinkat(dfd, tmpname, 0); close(dfd); resp_error("publish failed"); return; }
         }
+        published = final;
     }
     fsync(dfd);
     close(dfd);
     resp_begin_ok();
+    if (published && *published) {
+        oput(",\"file\":\"");
+        json_escape(published, strlen(published));
+        oput("\"");
+    }
     resp_end();
 }
 

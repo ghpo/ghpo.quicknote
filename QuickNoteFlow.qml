@@ -513,25 +513,32 @@ Item {
   }
 
   function startNewNote() {
-    // Clear immediately so a fresh blank note is always shown. The note being
-    // edited (if any) is auto-saved in the background — never block the clear
-    // on the daemon's reply.
-    root.autosaveCurrent()
+    // Clear immediately so a fresh blank note is always shown. Whatever was
+    // being edited (or typed) is auto-saved in the background — never block
+    // the clear on the daemon's reply.
+    root.savePending()
     root.clearNewNote()
   }
 
-  // Fire-and-forget autosave of the file currently being edited, only when
-  // its content changed since it was loaded/saved.
-  function autosaveCurrent() {
-    if (!root.editingFile) return
+  // Silent autosave of the current content. Works for both an existing note
+  // (edit) and a freshly typed note (creates a file; the daemon returns its
+  // name so later saves keep editing the same file). No-op when unchanged.
+  function savePending() {
     var text = root.note
-    if (text === root.savedContent || !text.trim()) return
-    var file = root.editingFile.split("/").pop()
-    root.cryptoSend({ op: "save", content: text, edit: file }, function(res) {
-      if (res.ok) {
-        root.savedContent = text
-        root.markUnsynced()
+    if (!text.trim()) return
+    var isNew = root.editingFile === ""
+    if (!isNew && text === root.savedContent) return
+    var req = { op: "save", content: text, edit: isNew ? null : root.editingFile.split("/").pop() }
+    root.cryptoSend(req, function(res) {
+      if (!res.ok) return
+      root.savedContent = text
+      root.markUnsynced()
+      if (isNew && res.file) {
+        // The daemon created a new file: remember it so future autosaves edit
+        // the same note instead of creating duplicates.
+        root.editingFile = root.expandedNotesDir() + "/" + res.file
       }
+      root.reloadNotes()
     })
   }
 
@@ -770,7 +777,7 @@ Item {
     // opened, auto-save it in the background so it is never lost, and switch
     // to the requested note right away.
     if (root.editingFile && row.path !== root.editingFile)
-      root.autosaveCurrent()
+      root.savePending()
     root.loadNote(row, index)
   }
 
@@ -1070,7 +1077,10 @@ Item {
     interval: 5000
     repeat: false
     onTriggered: {
-      if (root.note.trim() !== "" && !root.previewOn) root.goRendered()
+      if (root.note.trim() !== "" && !root.previewOn) {
+        root.savePending()
+        root.goRendered()
+      }
     }
   }
 
