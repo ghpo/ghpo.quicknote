@@ -38,21 +38,6 @@ if [[ -z $BR ]]; then
   run git checkout -q -b master 2>/dev/null || run git branch -q -M master || true
 fi
 
-# Keep the encryption seal and any stray export copies out of the repo.
-if [[ ! -f .gitignore ]]; then
-  say "creating .gitignore"
-  printf '.quicknote-seal\nquicknote-seal\n' > .gitignore
-else
-  if ! grep -q '^\.quicknote-seal$' .gitignore; then
-    say "adding .quicknote-seal to .gitignore"
-    printf '\n.quicknote-seal\n' >> .gitignore
-  fi
-  if ! grep -q '^quicknote-seal$' .gitignore; then
-    say "adding quicknote-seal to .gitignore"
-    printf '\nquicknote-seal\n' >> .gitignore
-  fi
-fi
-
 # Attach / refresh the remote.
 if [[ -n $REMOTE ]]; then
   if ! git remote get-url origin >/dev/null 2>&1; then
@@ -69,6 +54,28 @@ fi
 if ! git remote get-url origin >/dev/null 2>&1; then
   say "no remote configured — notes will only be committed locally."
 fi
+
+# NOTE: .gitignore is written in do_push (after the pull), not here. On a fresh
+# machine a locally-created .gitignore would be an untracked file that blocks a
+# fast-forward merge of a remote that already tracks .gitignore, so the first
+# sync would never recover the remote notes.
+
+ensure_gitignore() {
+  # Keep the encryption seal and any stray export copies out of the repo.
+  if [[ ! -f .gitignore ]]; then
+    say "creating .gitignore"
+    printf '.quicknote-seal\nquicknote-seal\n' > .gitignore
+  else
+    if ! grep -q '^\.quicknote-seal$' .gitignore; then
+      say "adding .quicknote-seal to .gitignore"
+      printf '\n.quicknote-seal\n' >> .gitignore
+    fi
+    if ! grep -q '^quicknote-seal$' .gitignore; then
+      say "adding quicknote-seal to .gitignore"
+      printf '\nquicknote-seal\n' >> .gitignore
+    fi
+  fi
+}
 
 upstream_exists() { git rev-parse -q --verify "refs/remotes/origin/$BR" >/dev/null 2>&1; }
 
@@ -94,9 +101,20 @@ do_pull() {
     return 0
   fi
   say "merging origin/$BR (fast-forward only)..."
-  if ! git merge -q --ff-only "origin/$BR" 2>&1; then
+  local mout
+  mout=$(git merge -q --ff-only "origin/$BR" 2>&1)
+  if (( $? != 0 )); then
     say "ERROR: pull/merge failed."
-    say "        resolve any conflict manually in ~/Documents/QuickNotes and sync again."
+    if [[ $mout == *"unrelated histories"* ]]; then
+      say "        your local repo and the remote have separate histories (e.g. a fresh"
+      say "        machine that already made its own first commit). Nothing was deleted."
+      say "        Recover the remote notes once, then Sync again:"
+      say "        git fetch origin && git merge --allow-unrelated-histories origin $BR"
+      say "        If it stops on a .gitignore conflict (both sides created one,"
+      say "        either version is fine):  git add .gitignore && git commit"
+    else
+      say "        resolve any conflict manually in $DIR and sync again."
+    fi
     return 1
   fi
   say "local branch is up to date with origin/$BR."
@@ -104,6 +122,7 @@ do_pull() {
 }
 
 do_push() {
+  ensure_gitignore
   git add -A
   local staged
   staged=$(git diff --cached --name-only 2>/dev/null | wc -l)
