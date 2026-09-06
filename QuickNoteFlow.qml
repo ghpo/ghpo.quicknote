@@ -73,6 +73,13 @@ Item {
   readonly property int cardWidth: Math.min(Style.space(860), panel.width - Style.gapsOut * 2)
   readonly property int cardHeight: Math.min(Style.space(540), panel.height - Style.gapsOut * 2)
   readonly property int listPaneWidth: Math.max(Style.space(280), Math.min(Style.space(360), root.cardWidth * 0.42))
+  // Compact note list when the dialog is restored (more room for writing);
+  // richer rows + wider list when maximized.
+  readonly property bool listCompact: !root.maximized
+  readonly property int listPaneW: root.listCompact
+    ? Math.max(Style.space(200), Math.min(Style.space(300), Math.max(0, card.width) * 0.26))
+    : Math.max(Style.space(300), Math.min(Style.space(440), Math.max(0, card.width) * 0.42))
+  readonly property int noteRowCompact: Style.space(46)
   readonly property int noteRowHeight: Math.max(Style.space(52), Style.font.body + Style.font.caption + Style.spacing.xxl)
   readonly property int textBoxRadius: Math.max(14, Style.cornerRadius)
   // Movable dialog: -1 = not placed yet (center on next open).
@@ -1185,7 +1192,7 @@ Item {
           visible: !root.isLocked
 
           Item {
-            Layout.preferredWidth: root.listPaneWidth
+            Layout.preferredWidth: root.listPaneW
             Layout.fillHeight: true
             clip: true
 
@@ -1267,23 +1274,26 @@ Item {
                 readonly property bool hasCursor: root.cursorActive && index === noteList.currentIndex
 
                 width: noteList.width
-                height: root.noteRowHeight
+                height: root.listCompact ? root.noteRowCompact : root.noteRowHeight
                 radius: Style.cornerRadius
                 color: hasCursor ? root.selectedBackground : "transparent"
 
-                // Title — sits in the upper part of the row.
+                // Title — sits in the upper part of the row (compact rows
+                // show just a single elided line, vertically centered).
                 Text {
                   anchors.left: parent.left
                   anchors.right: parent.right
                   anchors.top: parent.top
                   anchors.leftMargin: Style.space(10)
-                  anchors.rightMargin: Style.space(34)
-                  anchors.topMargin: Style.spacing.sm
+                  anchors.rightMargin: root.listCompact ? Style.space(30) : Style.space(34)
+                  anchors.topMargin: root.listCompact
+                    ? Math.max(3, (root.noteRowCompact - Math.round(Style.font.body * 1.6)) / 2)
+                    : Style.spacing.sm
                   textFormat: Text.PlainText
                   text: row.title || "Untitled"
                   color: hasCursor ? root.selectedText : root.foreground
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.title
+                  font.pixelSize: root.listCompact ? Style.font.body : Style.font.title
                   elide: Text.ElideRight
                   wrapMode: Text.NoWrap
                 }
@@ -1298,9 +1308,33 @@ Item {
                   onClicked: root.activateIndex(row.index)
                 }
 
+                // Compact-row delete: a small trash at the right edge.
+                Text {
+                  visible: root.listCompact
+                  text: ""
+                  anchors.right: parent.right
+                  anchors.rightMargin: Style.space(6)
+                  anchors.verticalCenter: parent.verticalCenter
+                  color: trashCompactHover.hovered
+                    ? Color.urgent
+                    : (hasCursor ? root.selectedText : Util.alpha(root.foreground, 0.7))
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.heading
+
+                  HoverHandler { id: trashCompactHover }
+
+                  MouseArea {
+                    anchors.fill: parent
+                    anchors.margins: -Style.spacing.xs
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.requestDelete(row.index)
+                  }
+                }
+
                 // Bottom band overlay: tags + stamp + trash, above the row
                 // MouseArea so their clicks are not swallowed.
                 RowLayout {
+                  visible: !root.listCompact
                   anchors.left: parent.left
                   anchors.right: parent.right
                   anchors.bottom: parent.bottom
