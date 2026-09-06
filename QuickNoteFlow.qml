@@ -30,7 +30,6 @@ Item {
     root.editingFile = ""
     root.savedContent = ""
     root.note = ""
-    if (noteEditor) noteEditor.text = ""   // immediate, even before bindings run
     noteList.currentIndex = -1
     root.setEditorMode("write")
     Qt.callLater(function() { noteEditor.forceActiveFocus() })
