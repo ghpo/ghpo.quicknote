@@ -1212,7 +1212,7 @@ Item {
 
           Text {
             Layout.fillWidth: true
-            text: "Crypto Notes"
+            text: "\uf023  Crypto Notes"
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.heading
