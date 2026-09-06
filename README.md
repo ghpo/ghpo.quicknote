@@ -1,26 +1,29 @@
 # ghpo.quicknote
 
 Quick note for the Omarchy bar. Adds a button next to the clock that opens a
-dialog for a fast note. Pressing `Enter` (or the Save button) writes it to
-`~/Documents/QuickNotes/` as a timestamped markdown file; `Esc` (or Close)
-discards.
+dialog for a fast note. `Enter` starts a new line and `Ctrl+Enter` (or the
+Save button) writes it to `~/Documents/QuickNotes/` as a timestamped markdown
+file; `Esc` (or Close) discards.
 
 Since **v2.0.0** the notes can be **encrypted at rest** and **synced to a
 private git remote** — everything optional and configurable per widget.
 
 ## Features
 
-- One-keynote dialog: type, `Enter` saves, `Shift+Enter` adds a newline.
-- **Resizable window**: the dialog opens centered and can be dragged by the
-  title bar, resized from the bottom-right corner, or maximized/restored and
-  closed with the title-bar buttons.
+- One-keynote dialog: type; `Enter` starts a new line and `Ctrl+Enter` (or the
+  Save button) saves the note.
+- **Window**: opens centered; **Maximize**/Restore in the title bar; the note
+  list is compact when restored (more room for writing) and wider when
+  maximized. Closed with the × button.
 - **Markdown preview**: the editor has a **Format** toolbar (bold, italic,
   code, code block, heading, lists, quote) and a **Write / Preview** toggle
   that renders the note (headings, bold/italic/code, code blocks, lists,
   quotes, links). Opening a note from the list shows it already rendered.
 - Recent-notes list (newest first) with click-to-edit, keyboard navigation
-  (`↑`/`↓`, `Enter` loads, `Alt+Enter` copies, `Ctrl+Enter` opens in your
-  editor, `Delete` asks before removing).
+  (`↑`/`↓`, `Enter` loads, `Alt+Enter` copies, `Ctrl+Enter` saves the editor,
+  `Ctrl+Shift+Enter` opens it in your text editor, `Delete` asks before
+  removing).
+- **Tab** moves between the editor and the note list.
 - Text search and automatic `#tag` detection/filtering from note content.
 - Delete requires confirmation.
 - **Encrypted storage** (optional): notes are encrypted before they ever touch

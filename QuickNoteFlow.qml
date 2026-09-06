@@ -1491,7 +1491,7 @@ Item {
                   visible: !root.previewOn
 
                   text: root.note
-                  placeholderText: "Type your note...  (Enter saves, Shift+Enter new line)"
+                  placeholderText: "Type your note...  (Enter = new line, Ctrl+Enter = save)"
                   placeholderTextColor: Qt.darker(root.foreground, 1.6)
 
                   font.family: root.fontFamily
@@ -1533,13 +1533,16 @@ Item {
                       root.copyText(root.note)
                       event.accepted = true
                     } else if (event.modifiers & Qt.ControlModifier) {
-                      // Open the file being edited in the external editor.
-                      root.openFile(root.editingFile)
-                      event.accepted = true
-                    } else if (!(event.modifiers & Qt.ShiftModifier)) {
-                      root.saveAndClose()
+                      if (event.modifiers & Qt.ShiftModifier) {
+                        // Open the file being edited in the external editor.
+                        root.openFile(root.editingFile)
+                      } else {
+                        root.saveAndClose()
+                      }
                       event.accepted = true
                     }
+                    // Plain Enter is left to the editor: it starts a new line
+                    // instead of saving the note.
                   }
                 }
 
@@ -1552,7 +1555,7 @@ Item {
                   anchors.topMargin: noteEditor.topPadding
                   anchors.rightMargin: noteEditor.rightPadding
                   anchors.bottomMargin: noteEditor.bottomPadding
-                  text: "Type your note...  (Enter saves, Shift+Enter new line)"
+                  text: "Type your note...  (Enter = new line, Ctrl+Enter = save)"
                   color: Qt.darker(root.foreground, 1.4)
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
@@ -1581,7 +1584,7 @@ Item {
                     text: root.mdToHtml(root.note)
                     textFormat: Text.RichText
                     readOnly: true
-                    wrapMode: Text.Wrap
+                    wrapMode: Text.WrapAnywhere
                     color: root.foreground
                     selectionColor: Style.selectionFillFor(root.foreground, Color.accent)
                     selectedTextColor: root.foreground
@@ -1892,21 +1895,24 @@ Item {
                   lineHeight: 1.45
                   wrapMode: Text.WordWrap
                   text: "<b style='color:" + root.foreground + "'>Quick Notes</b><br/><br/>" +
-                        "Type in the editor and press <b>Enter</b> (or Save) to save the note as a timestamped .md file in ~/Documents/QuickNotes/. <b>Shift+Enter</b> starts a new line.<br/><br/>" +
+                        "Type in the editor. <b>Enter</b> starts a new line; press <b>Ctrl+Enter</b> (or Save) to save the note as a timestamped .md file in ~/Documents/QuickNotes/.<br/><br/>" +
                         "<b style='color:" + root.foreground + "'>Left panel — recent notes</b><br/>" +
                         "· <b>Enter</b> — loads the note into the editor (Save overwrites)<br/>" +
                         "· <b>Alt+Enter</b> — copies the note<br/>" +
-                        "· <b>Ctrl+Enter</b> — opens the note in your text editor<br/>" +
+                        "· <b>Ctrl+Enter</b> — saves the note<br/>" +
+                         "· <b>Ctrl+Shift+Enter</b> — opens the note in your text editor<br/>" +
                         "· <b>Delete</b> (or the trash icon) — deletes, with confirmation<br/><br/>" +
                         "<b style='color:" + root.foreground + "'>Search</b><br/>" +
                         "The field above the editor filters by text or by #tag. <b>Esc</b> clears it.<br/><br/>" +
                         "<b style='color:" + root.foreground + "'>Categorizing with # (tags)</b><br/>" +
                         "Write #word anywhere in the note text (e.g. #idea, #shopping). The word becomes a tag automatically, shows in blue in the list, and works as a filter: click it or type it in the search to see only the notes with that tag.<br/><br/>" +
                          "<b style='color:" + root.foreground + "'>Shortcuts</b><br/>" +
-                         "· <b>Esc</b> — closes without saving<br/>" +
-                         "· <b>Shift+Enter</b> — new line<br/>" +
+                         "· <b>Enter</b> — new line<br/>" +
+                         "· <b>Ctrl+Enter</b> — save<br/>" +
+                         "· <b>Ctrl+Shift+Enter</b> — open in your text editor<br/>" +
+                         "· <b>Esc</b> — close<br/>" +
                          "· <b>Write / Preview</b> — render the note as markdown<br/>" +
-                         "· <b>drag the title bar</b> — move the dialog (double-click centers it)"
+                         "· <b>Maximize</b> (title bar) — fill the screen"
                 }
               }
 
