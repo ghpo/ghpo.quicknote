@@ -19,7 +19,7 @@ Item {
     policy: ScrollBar.AlwaysOn
     implicitWidth: 8
     implicitHeight: 8
-    background: Rectangle { color: "transparent" }
+    background: Rectangle { color: Qt.rgba(0.5,0.5,0.55,0.12); radius: 4 }
     contentItem: Item {
       implicitWidth: 8
       implicitHeight: 44
@@ -1164,6 +1164,19 @@ Item {
       onClicked: root.dismiss()
     }
 
+    // Soft neon halo behind the dialog (layered translucent rounded rects).
+    Item {
+      anchors.centerIn: parent
+      width: card.width + 2 * Style.space(42)
+      height: card.height + 2 * Style.space(42)
+      z: 0
+      visible: card.opacity > 0
+      Rectangle { anchors.centerIn: parent; width: card.width + 2 * Style.space(42); height: card.height + 2 * Style.space(42); radius: root.cornerRadius + Style.space(21); color: Qt.rgba(root.neonColor.r, root.neonColor.g, root.neonColor.b, 0.03) }
+      Rectangle { anchors.centerIn: parent; width: card.width + 2 * Style.space(26); height: card.height + 2 * Style.space(26); radius: root.cornerRadius + Style.space(13); color: Qt.rgba(root.neonColor.r, root.neonColor.g, root.neonColor.b, 0.06) }
+      Rectangle { anchors.centerIn: parent; width: card.width + 2 * Style.space(14); height: card.height + 2 * Style.space(14); radius: root.cornerRadius + Style.space(7); color: Qt.rgba(root.neonColor.r, root.neonColor.g, root.neonColor.b, 0.11) }
+      Rectangle { anchors.centerIn: parent; width: card.width + 2 * Style.space(4); height: card.height + 2 * Style.space(4); radius: root.cornerRadius + Style.space(2); color: Qt.rgba(root.neonColor.r, root.neonColor.g, root.neonColor.b, 0.18) }
+    }
+
     BorderSurface {
       id: card
       width: root.maximized ? Math.max(0, panel.width - root.contentMargin * 2)
@@ -1628,7 +1641,7 @@ Item {
                    visible: !(root.previewOn && root.note.trim() !== "")
                    clip: true
                    contentWidth: width
-                   contentHeight: Math.max(height, noteEditor.height + 2 * Style.spacing.inputPaddingY)
+                   contentHeight: Math.max(height, noteEditor.height + 2 * Style.spacing.inputPaddingY + Style.spacing.xxl)
                    boundsBehavior: Flickable.StopAtBounds
                    ScrollBar.vertical: ThinScrollBar { }
 
@@ -1658,10 +1671,10 @@ Item {
                      onCursorRectangleChanged: {
                        var f = editorFlick
                        var r = noteEditor.cursorRectangle
-                       var top = r.y + f.contentY
-                       if (r.y < f.contentY) f.contentY = Math.max(0, r.y)
-                       else if (r.y + r.height > f.contentY + f.height) {
-                         f.contentY = r.y + r.height - f.height
+                       var topY = noteEditor.y + r.y
+                       if (topY < f.contentY) f.contentY = Math.max(0, topY)
+                       else if (topY + r.height > f.contentY + f.height) {
+                         f.contentY = topY + r.height - f.height
                        }
                      }
 
@@ -1741,7 +1754,7 @@ Item {
                   topPadding: Style.spacing.inputPaddingY + Border.top(renderBorder)
                   bottomPadding: Style.spacing.inputPaddingY + Border.bottom(renderBorder)
                   readonly property var renderBorder: Border.controlSpec("normal", root.foreground, Color.accent)
-                  background: Rectangle { color: "transparent" }
+                  background: Rectangle { color: Qt.rgba(0.5,0.5,0.55,0.12); radius: 4 }
 
                   Keys.priority: Keys.BeforeItem
                   Keys.onPressed: function(event) {
