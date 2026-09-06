@@ -1762,6 +1762,7 @@ Item {
                   anchors.fill: parent
                   clip: true
                   visible: !(root.previewOn && root.note.trim() !== "")
+                  ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                   placeholderText: "Type your note...  (Enter = new line, Ctrl+Enter = save)"
                   placeholderTextColor: Qt.darker(root.foreground, 1.6)
@@ -1867,6 +1868,7 @@ Item {
                   contentWidth: width
                   contentHeight: prevCol.height
                   boundsBehavior: Flickable.StopAtBounds
+                  ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
                   Keys.priority: Keys.BeforeItem
                   Keys.onPressed: function(event) {
