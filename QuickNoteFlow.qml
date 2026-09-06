@@ -490,11 +490,13 @@ Item {
 
   function close() {
     root.opened = false
+    root.cleanupPreviews()
   }
 
   function dismiss() {
     root.opened = false
     root.keyBackupOpen = false
+    root.cleanupPreviews()
     if (root.passwordOpen) root.passwordOpen = false
     if (root.helpOpen) root.closeHelp()
     if (root.shell && typeof root.shell.hide === "function")
@@ -770,8 +772,25 @@ Item {
   property int previewTick: 0
   property var imgCache: ({})
   property var imgQueue: []
+  property var imgList: []
+  property var imgRatios: ({})
   property string decP: ""
   property string decPath: ""
+
+  function cleanupPreviews() {
+    var paths = []
+    for (var k in root.imgCache) {
+      var p = root.imgCache[k]
+      if (p && p.indexOf("/qnpreview-") !== -1) paths.push(p)
+    }
+    root.imgCache = {}
+    root.imgQueue = []
+    if (paths.length > 0) {
+      var cmd = ["rm", "-f"].concat(paths)
+      Quickshell.execDetached(cmd)
+    }
+    root.previewTick++
+  }
 
   function imgHash(p) {
     var h = 5381
@@ -780,9 +799,29 @@ Item {
   }
 
   function imgDecodeDone(path, p) {
-    root.imgCache[p] = path
+    if (p) root.imgCache[p] = path
     root.previewTick++
+    root.refreshImgs()
     root.pumpImgDecode()
+  }
+
+  function refreshImgs() {
+    var out = []
+    for (var k in root.imgCache) { var v = root.imgCache[k]; if (v && v.indexOf("/qnpreview-") !== -1) out.push(v) }
+    root.imgList = out
+  }
+
+  function setImgRatio(path, w, h) {
+    if (!w || !h) return
+    root.imgRatios[path] = w / h
+    // Refresh the list so the item height picks up the aspect ratio.
+    root.refreshImgs()
+  }
+
+  function prevImgHeight(path, w) {
+    var r = root.imgRatios[path]
+    if (!r || !w) return Math.max(40, w * 0.6)
+    return Math.max(40, w / r)
   }
 
   function pumpImgDecode() {
@@ -810,16 +849,14 @@ Item {
     root.pumpImgDecode()
   }
 
-  function renderPreview() {
-    // Reading previewTick makes this binding re-run after decodes finish.
+  function renderPreviewText() {
+    // Reading previewTick makes this re-run after decodes finish.
     var tick = root.previewTick
     root.enqueueImgs(root.note)
     var html = root.mdToHtml(root.note)
     var re = /!\[([^\]]*)\]\((data:image\/(?:png|jpe?g|webp|gif);base64,)([A-Za-z0-9+/=]+)\)/g
     html = html.replace(re, function(m, alt, prefix, payload) {
-      var path = root.imgCache[payload]
-      if (path) return '<br/><img src="file://' + path + '" style="max-width:100%"/>'
-      return '<br/><i>[image]</i>'
+      return '<br/><i>[imagem abaixo]</i>'
     })
     return html
   }
@@ -1700,7 +1737,6 @@ Item {
                 Button { text: "•"; fontFamily: root.fontFamily; tooltipText: "Bullet list (- )"; onClicked: root.formatBullet() }
                 Button { text: "1."; fontFamily: root.fontFamily; tooltipText: "Numbered list (1. )"; onClicked: root.formatNumbered() }
                 Button { text: "❝"; fontFamily: root.fontFamily; tooltipText: "Quote (> )"; onClicked: root.formatQuote() }
-                Button { text: "Img"; fontFamily: root.fontFamily; tooltipText: "Paste screenshot as an inline image"; onClicked: root.pasteSmart() }
               }
 
               Item {
@@ -1822,26 +1858,15 @@ Item {
                                  : (noteEditor._focused ? 0.45 : 0.22))
                 }
                 // Read-only rich render of the note (auto after a typing pause).
-                TextArea {
+                Flickable {
                   id: renderArea
                   anchors.fill: parent
+                  anchors.margins: Style.space(8)
                   clip: true
                   visible: root.previewOn && root.note.trim() !== ""
-                  textFormat: Text.RichText
-                  readOnly: true
-                  text: root.renderPreview()
-                  wrapMode: Text.WrapAnywhere
-                  color: root.foreground
-                  selectionColor: Style.selectionFillFor(root.foreground, Color.accent)
-                  selectedTextColor: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  leftPadding: Style.spacing.controlPaddingX + Border.left(renderBorder)
-                  rightPadding: Style.spacing.controlPaddingX + Border.right(renderBorder)
-                  topPadding: Style.spacing.inputPaddingY + Border.top(renderBorder)
-                  bottomPadding: Style.spacing.inputPaddingY + Border.bottom(renderBorder)
-                  readonly property var renderBorder: Border.controlSpec("normal", root.foreground, Color.accent)
-                  background: Rectangle { color: "transparent" }
+                  contentWidth: width
+                  contentHeight: prevCol.height
+                  boundsBehavior: Flickable.StopAtBounds
 
                   Keys.priority: Keys.BeforeItem
                   Keys.onPressed: function(event) {
@@ -1850,6 +1875,43 @@ Item {
                     else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                       if (event.modifiers & Qt.ControlModifier) { root.saveAndClose(); event.accepted = true }
                       else if (event.modifiers & Qt.AltModifier) { root.goEdit(); event.accepted = true }
+                    }
+                  }
+
+                  Column {
+                    id: prevCol
+                    width: renderArea.width
+                    spacing: Style.spacing.sm
+
+                    Text {
+                      id: prevText
+                      width: parent.width
+                      textFormat: Text.RichText
+                      text: root.renderPreviewText()
+                      color: root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                      wrapMode: Text.WrapAnywhere
+                    }
+
+                    Repeater {
+                      id: prevImgs
+                      model: root.imgList
+
+                      delegate: Item {
+                        required property string modelData
+                        width: prevCol.width
+                        height: root.prevImgHeight(modelData, width)
+                        Image {
+                          anchors.fill: parent
+                          fillMode: Image.PreserveAspectFit
+                          source: modelData
+                          onStatusChanged: {
+                            if (status === Image.Ready)
+                              root.setImgRatio(modelData, sourceSize.width, sourceSize.height)
+                          }
+                        }
+                      }
                     }
                   }
                 }
