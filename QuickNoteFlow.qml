@@ -1270,7 +1270,7 @@ Item {
               anchors.top: parent.top
               anchors.left: parent.left
               anchors.right: parent.right
-              anchors.rightMargin: Style.spacing.lg
+              anchors.rightMargin: Style.space(20)
               anchors.leftMargin: Style.space(10)
               anchors.topMargin: Style.spacing.xs
               height: Style.font.body + Style.spacing.sm
@@ -1369,7 +1369,7 @@ Item {
 
                 readonly property bool hasCursor: root.cursorActive && index === noteList.currentIndex
 
-                width: noteList.width
+                width: Math.max(80, noteList.width - Style.space(20))
                 height: root.listCompact ? root.noteRowCompact : root.noteRowHeight
                 radius: Style.cornerRadius
                 color: hasCursor ? root.selectedBackground : "transparent"
