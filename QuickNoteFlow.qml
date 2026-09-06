@@ -1300,6 +1300,7 @@ Item {
               anchors.topMargin: Math.round(Style.font.body + Style.spacing.lg)
               anchors.rightMargin: Style.spacing.lg
               clip: true
+              ScrollBar.vertical: ThinScrollBar { }
               spacing: Style.space(4)
               boundsBehavior: Flickable.StopAtBounds
               model: notesModel
