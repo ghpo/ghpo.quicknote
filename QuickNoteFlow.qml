@@ -22,6 +22,32 @@ Item {
 
   // Path of the note currently being edited ("" = composing a fresh note).
   property string editingFile: ""
+  // Content of the note currently in `editingFile` at last load/save; used to
+  // detect unsaved edits and auto-save before switching notes.
+  property string savedContent: ""
+
+  function saveSilently(cb) {
+    if (!root.editingFile) { cb(); return }
+    var text = root.note
+    if (text === root.savedContent) { cb(); return }
+    root.cryptoSend({
+      op: "save",
+      content: text,
+      edit: root.editingFile.split("/").pop()
+    }, function(res) {
+      if (res.ok) root.savedContent = text
+      if (cb) cb()
+    })
+  }
+
+  function clearNewNote() {
+    root.editingFile = ""
+    root.savedContent = ""
+    root.note = ""
+    noteList.currentIndex = -1
+    root.setEditorMode("write")
+    Qt.callLater(function() { noteEditor.forceActiveFocus() })
+  }
 
   // Delete-confirmation state.
   property bool deleteConfirmOpen: false
@@ -487,10 +513,11 @@ Item {
   }
 
   function startNewNote() {
-    root.editingFile = ""
-    root.note = ""
-    root.previewOn = false
-    Qt.callLater(function() { noteEditor.forceActiveFocus() })
+    // Never lose the note being edited: save it first when switching away.
+    if (root.editingFile && root.note !== root.savedContent)
+      root.saveSilently(function() { root.clearNewNote() })
+    else
+      root.clearNewNote()
   }
 
   function setEditorMode(mode) {
@@ -687,7 +714,19 @@ Item {
   function activateIndex(index) {
     if (index < 0 || index >= noteList.count) return
     var row = notesModel.get(index)
+    // If the current note has unsaved edits and it is not the one being
+    // opened, save it first so it is never lost.
+    if (root.editingFile && row.path !== root.editingFile
+        && root.note !== root.savedContent) {
+      root.saveSilently(function() { root.loadNote(row, index) })
+      return
+    }
+    root.loadNote(row, index)
+  }
+
+  function loadNote(row, index) {
     root.editingFile = row.path
+    root.savedContent = row.content
     root.note = row.content
     root.previewOn = true   // open the selected note already rendered
     root.cursorActive = true
@@ -866,6 +905,7 @@ Item {
       edit: root.editingFile ? root.editingFile.split("/").pop() : null
     }, function(res) {
       if (res.ok) {
+        root.savedContent = text
         root.markUnsynced()
         Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
           "Quick note saved", "Your note was saved in " + root.notesDir])
@@ -1073,6 +1113,7 @@ Item {
 
           Item {
             Layout.preferredWidth: root.listPaneW
+            Layout.maximumWidth: root.listPaneW
             Layout.fillHeight: true
             clip: true
 
@@ -1353,6 +1394,7 @@ Item {
           Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            Layout.minimumWidth: Style.space(340)
             clip: true
 
             ColumnLayout {
