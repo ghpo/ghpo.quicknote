@@ -1707,6 +1707,8 @@ Item {
 
       // Locked screen (encryption on, key not in memory): replace the editor
       // pane with a LOCKED notice + Unlock so nothing hints at the content.
+      }
+
       Item {
         id: lockedView
         Layout.fillWidth: true
@@ -1756,70 +1758,30 @@ Item {
         }
       }
 
-
-        Button {
-          text: root.unsynced ? "● Sync" : "Sync"
-          fontFamily: root.fontFamily
-          visible: root.cryptoEnabled && root.cryptoUnlocked
-          enabled: !root.syncBusy
-          tooltipText: root.unsynced ? "Pull + push notes (local changes not pushed yet)"
-                                     : "Pull + push notes to a git remote"
-          onClicked: root.openSync()
-        }
-
-        Item { Layout.fillWidth: true }
-
-        Button {
-          text: "New"
-          fontFamily: root.fontFamily
-          visible: root.editingFile !== "" && !root.isLocked
-          onClicked: root.startNewNote()
-        }
-
-        Button {
-          text: "Close"
-          fontFamily: root.fontFamily
-          visible: !root.isLocked
-          onClicked: root.dismiss()
-        }
-
-        Button {
-          text: "Save"
-          fontFamily: root.fontFamily
-          active: true
-          visible: !root.isLocked
-          onClicked: root.saveAndClose()
-        }
-      }
-      Item {
+      RowLayout {
         Layout.fillWidth: true
-        implicitHeight: 36
-        RowLayout {
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.spacing.controlGap
+        spacing: Style.spacing.controlGap
 
         Button {
+          Layout.preferredWidth: implicitWidth
           text: "?"
-          fontFamily: root.fontFamily
           tooltipText: "How it works"
           onClicked: root.openHelp()
         }
 
         Button {
+          Layout.preferredWidth: implicitWidth
           text: "Lock"
-          fontFamily: root.fontFamily
-          visible: root.cryptoEnabled && root.cryptoUnlocked
           tooltipText: "Forget the encryption key (asks for the password again)"
+          visible: root.cryptoEnabled && root.cryptoUnlocked
           onClicked: root.lockCrypto()
         }
 
         Button {
+          Layout.preferredWidth: implicitWidth
           text: "Pass"
-          fontFamily: root.fontFamily
-          visible: root.cryptoEnabled && root.cryptoUnlocked
           tooltipText: "Change the password (re-encrypts every note)"
+          visible: root.cryptoEnabled && root.cryptoUnlocked
           onClicked: root.openChangePass()
         }
 
@@ -1885,9 +1847,39 @@ Item {
               }            }
             }
           }
+
+        Button {
+          Layout.preferredWidth: implicitWidth
+          text: root.unsynced ? "● Sync" : "Sync"
+          tooltipText: root.unsynced ? "Pull + push (changes not pushed)" : "Pull + push to the git remote"
+          visible: root.cryptoEnabled && root.cryptoUnlocked
+          enabled: !root.syncBusy
+          onClicked: root.openSync()
+        }
+
+        Button {
+          Layout.preferredWidth: implicitWidth
+          text: "New"
+          visible: root.editingFile !== "" && !root.isLocked
+          onClicked: root.startNewNote()
+        }
+
+        Button {
+          Layout.preferredWidth: implicitWidth
+          text: "Close"
+          visible: !root.isLocked
+          onClicked: root.dismiss()
+        }
+
+        Button {
+          Layout.preferredWidth: implicitWidth
+          text: "Save"
+          active: true
+          visible: !root.isLocked
+          onClicked: root.saveAndClose()
         }
       }
-      }
+
 
         ConfirmDialog {
           id: deleteConfirm
@@ -2450,4 +2442,5 @@ Item {
 
     }
   }
+}
 }
