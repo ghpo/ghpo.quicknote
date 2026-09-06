@@ -1136,6 +1136,15 @@ Item {
             elide: Text.ElideRight
           }
 
+          Text {
+            Layout.preferredWidth: implicitWidth
+            text: "v" + ((root.manifest && root.manifest.version) || "")
+            color: Qt.darker(root.foreground, 1.8)
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            verticalAlignment: Text.AlignVCenter
+          }
+
           Button {
             text: root.maximized ? "Restore" : "Maximize"
             fontFamily: root.fontFamily
@@ -1751,15 +1760,6 @@ Item {
         Layout.fillWidth: true
         spacing: Style.spacing.controlGap
 
-        Text {
-          Layout.preferredWidth: implicitWidth
-          text: "v" + ((root.manifest && root.manifest.version) || "")
-          color: Qt.darker(root.foreground, 1.8)
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          verticalAlignment: Text.AlignVCenter
-        }
-
         Button {
           text: "?"
           fontFamily: root.fontFamily
@@ -1848,27 +1848,16 @@ Item {
         }
 
         Button {
-          text: "Sync"
+          text: root.unsynced ? "● Sync" : "Sync"
           fontFamily: root.fontFamily
           visible: root.cryptoEnabled && root.cryptoUnlocked
           enabled: !root.syncBusy
-          tooltipText: "Pull + push notes to a git remote"
+          tooltipText: root.unsynced ? "Pull + push notes (local changes not pushed yet)"
+                                     : "Pull + push notes to a git remote"
           onClicked: root.openSync()
         }
 
         Item { Layout.fillWidth: true }
-
-        // Unsaved-changes dot: a note was changed since the last successful
-        // push to the git remote.
-        Text {
-          text: "•"
-          color: Color.accent
-          font.family: root.fontFamily
-          font.bold: true
-          font.pixelSize: Style.font.body
-          verticalAlignment: Text.AlignVCenter
-          visible: root.unsynced && !root.isLocked && root.cryptoEnabled && root.cryptoUnlocked
-        }
 
         Button {
           text: "New"
