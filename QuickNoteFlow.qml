@@ -522,9 +522,7 @@ Item {
 
   function setEditorMode(mode) {
     root.previewOn = mode === "preview"
-    if (root.previewOn) {
-      Qt.callLater(function() { if (previewFlick) previewFlick.contentY = 0 })
-    } else {
+    if (!root.previewOn) {
       Qt.callLater(function() { if (noteEditor) noteEditor.forceActiveFocus() })
     }
   }
@@ -1481,36 +1479,10 @@ Item {
                 Button { text: "❝"; fontFamily: root.fontFamily; tooltipText: "Quote (> )"; onClicked: root.formatQuote() }
               }
 
-              // Live markdown preview toggle.
-              RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: Style.spacing.xs
-                spacing: Style.spacing.xs
-                visible: !root.isLocked
-
-                Text {
-                  text: "Live preview"
-                  color: Qt.darker(root.foreground, 1.7)
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  verticalAlignment: Text.AlignVCenter
-                }
-                Item { Layout.fillWidth: true }
-                Button {
-                  text: root.previewOn ? "Hide preview" : "Show preview"
-                  fontFamily: root.fontFamily
-                  active: root.previewOn
-                  tooltipText: "Show or hide the live rendered preview below the editor"
-                  onClicked: root.previewOn = !root.previewOn
-                }
-              }
-
               Item {
                 id: editorSlot
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.preferredHeight: 340
-                Layout.minimumHeight: 120
                 // Solid box behind the editor (TextArea background doesn't
                 // paint reliably, so the fill lives here as a sibling). The
                 // thin neon border also lives here, not on the comet overlay.
@@ -1615,51 +1587,7 @@ Item {
                 }
             }
 
-              // Live rendered markdown preview, below the editor.
-              Item {
-                id: previewPane
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.preferredHeight: 200
-                Layout.minimumHeight: 90
-                visible: root.previewOn
-                clip: true
 
-                BorderSurface {
-                  anchors.fill: parent
-                  radius: root.textBoxRadius
-                  color: Qt.darker(root.background, 1.12)
-                  borderSpec: Border.flat(
-                    Qt.rgba(root.neonColor.r, root.neonColor.g, root.neonColor.b, 0.22),
-                    Math.max(1, Style.hairline))
-                }
-
-                Flickable {
-                  id: previewFlick
-                  anchors.fill: parent
-                  anchors.margins: Style.space(8)
-                  clip: true
-                  contentWidth: width
-                  contentHeight: previewArea.contentHeight
-                  boundsBehavior: Flickable.StopAtBounds
-
-                  TextArea {
-                    id: previewArea
-                    width: previewFlick.width
-                    text: root.mdToHtml(root.note)
-                    textFormat: Text.RichText
-                    readOnly: true
-                    wrapMode: Text.WrapAnywhere
-                    color: root.foreground
-                    selectionColor: Style.selectionFillFor(root.foreground, Color.accent)
-                    selectedTextColor: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                    background: null
-                    selectByMouse: true
-                  }
-                }
-              }
 
           }
         }
@@ -1957,7 +1885,7 @@ Item {
                          "· <b>Ctrl+Enter</b> — save<br/>" +
                          "· <b>Ctrl+Shift+Enter</b> — open in your text editor<br/>" +
                          "· <b>Esc</b> — close<br/>" +
-                         "· <b>Show/Hide preview</b> — toggle the live markdown view below the editor<br/>" +
+                         "· <b>Format bar</b> — insert markdown (bold, heading, code…)<br/>" +
                          "· <b>Maximize</b> (title bar) — fill the screen"
                 }
               }
