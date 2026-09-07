@@ -273,6 +273,30 @@ passphrase (a sentence works well). This is not a trusted desktop vault:
 - `NeonBorder.qml` — animated editor border
 - `LICENSE` — MIT
 
+
+## Sync between machines (troubleshooting)
+
+- Crypto Notes does **not** watch the remote: sync is manual and directional.
+  After editing on machine A, press **Sync** there (push). On machine B press
+  **Sync** to pull — do this **after** A pushed, in that order.
+- Every machine needs its own **SSH key** registered on GitHub and the same
+  `gitRemote` in its `shell.json`.
+- Encrypted notes: on a new machine use **Key Backup → Import** to restore the
+  `.quicknote-seal` **before the first unlock**, otherwise the note list will
+  be empty (a fresh salt is created).
+- If a Sync says the histories are unrelated, follow the recovery command it
+  prints (`git fetch origin && git merge --allow-unrelated-histories …`), then
+  Sync again.
+- If notes still do not appear, open **Sync** and read the log — a failed
+  fetch/merge shows the reason there.
+
+## Quick-open shortcut (Ctrl+Alt+Enter)
+
+The shortcut is a **system keybinding**, configured per machine in
+`~/.config/hypr/bindings.lua` — it is not part of the plugin install. On a new
+machine, open the **?** help inside Crypto Notes and press **Enable shortcut**:
+it adds the binding and reloads Hyprland for you.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
