@@ -70,6 +70,7 @@ Item {
   }
 
   function clearNewNote() {
+    root.noteVersion++
     root.editingFile = ""
     root.savedContent = ""
     root.setNoteText("")
@@ -98,6 +99,10 @@ Item {
   // First-run encryption banner.
   property bool onboardBanner: false
   property bool onboardChecked: false
+  // Guards against creating two files for the same new note.
+  property bool creatingNewNote: false
+  property var newCreateWaiters: []
+  property int noteVersion: 0
   // Local changes not yet pushed to the remote (git sync pending).
   property bool unsynced: false
   property string lastSync: ""
@@ -560,26 +565,55 @@ Item {
     root.clearNewNote()
   }
 
-  // Silent autosave of the current content. Works for both an existing note
-  // (edit) and a freshly typed note (creates a file; the daemon returns its
-  // name so later saves keep editing the same file). No-op when unchanged.
-  function savePending() {
+  // Saves the current content exactly once per new note. If a create is
+  // already in flight for this buffer, further requests wait for it instead of
+  // creating a second file. An id captured before the request lets late
+  // completions skip rebinding when the user already cleared/switched notes.
+  function ensureSaved(done) {
     var text = root.note
-    if (!text.trim()) return
+    if (!text.trim()) { if (done) done(); return }
     var isNew = root.editingFile === ""
-    if (!isNew && text === root.savedContent) return
-    var req = { op: "save", content: text, edit: isNew ? null : root.editingFile.split("/").pop() }
-    root.cryptoSend(req, function(res) {
-      if (!res.ok) return
-      root.savedContent = text
-      root.markUnsynced()
-      if (isNew && res.file) {
-        // The daemon created a new file: remember it so future autosaves edit
-        // the same note instead of creating duplicates.
-        root.editingFile = root.expandedNotesDir() + "/" + res.file
+    if (!isNew && text === root.savedContent) { if (done) done(); return }
+
+    if (isNew && root.creatingNewNote) {
+      if (done) root.newCreateWaiters.push(done)
+      return
+    }
+    var ver = root.noteVersion
+    if (isNew) root.creatingNewNote = true
+
+    root.cryptoSend({
+      op: "save",
+      content: text,
+      edit: isNew ? null : root.editingFile.split("/").pop()
+    }, function(res) {
+      if (!res.ok) {
+        if (isNew) root.creatingNewNote = false
+        if (done) done()
+        return
       }
-      root.reloadNotes()
+      var stillActive = ver === root.noteVersion
+      if (stillActive) root.savedContent = text
+      root.markUnsynced()
+      if (isNew) {
+        root.creatingNewNote = false
+        if (stillActive && res.file)
+          root.editingFile = root.expandedNotesDir() + "/" + res.file
+        var ws = root.newCreateWaiters
+        root.newCreateWaiters = []
+        root.reloadNotes()
+        for (var i = 0; i < ws.length; i++) ws[i]()
+      } else {
+        if (stillActive) root.reloadNotes()
+      }
+      if (done) done()
     })
+  }
+
+  // Silent autosave of the current content (called on idle-render and on New/
+  // note switch). Creates a new file once; later saves edit the same note.
+  function savePending() {
+    root.ensureSaved(null)
   }
 
   // Editing <-> rendered states of the single note area.
@@ -904,6 +938,7 @@ Item {
   }
 
   function loadNote(row, index) {
+    root.noteVersion++
     root.editingFile = row.path
     root.savedContent = row.content
     root.setNoteText(row.content)
@@ -1073,23 +1108,12 @@ Item {
       return
     }
 
-    // Supervised: only report success / refresh after the daemon confirms.
-    root.cryptoSend({
-      op: "save",
-      content: text,
-      edit: root.editingFile ? root.editingFile.split("/").pop() : null
-    }, function(res) {
-      if (res.ok) {
-        root.savedContent = text
-        root.markUnsynced()
-        Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-          "Crypto Notes saved", "Your note was saved in " + root.notesDir])
-        root.dismiss()
-        root.reloadNotes()
-      } else if (res.error !== "locked") {
-        Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-          "Error saving", "The helper failed"])
-      }
+    // Saves exactly once (guarded create for new notes) then closes.
+    root.ensureSaved(function() {
+      Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+        "Crypto Notes saved", "Your note was saved in " + root.notesDir])
+      root.dismiss()
+      root.reloadNotes()
     })
   }
 
