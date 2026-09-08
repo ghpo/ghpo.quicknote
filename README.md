@@ -99,8 +99,13 @@ other external runtime is required.
 Installed git plugins update in place:
 
 ```bash
-omarchy plugin update ghpo.quicknote
+omarchy plugin update ghpo.quicknote --yes
 ```
+
+`--yes` is important: without it the command prints the full git **diff of the
+changes** in the terminal and waits for an interactive confirmation (so it can
+look like it "opens code" and does nothing). With `--yes` it applies the
+update directly.
 
 After any update, restart the shell so the new code is loaded:
 
