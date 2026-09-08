@@ -93,6 +93,45 @@ A C compiler (`cc`/`gcc`/`clang`) and the `libsodium` headers are needed to
 build the storage daemon on first use — both are standard on Arch/Omarchy. No
 other external runtime is required.
 
+
+### Updating
+
+Installed git plugins update in place:
+
+```bash
+omarchy plugin update ghpo.quicknote
+```
+
+After any update, restart the shell so the new code is loaded:
+
+```bash
+omarchy-restart-shell
+```
+
+If an overlay stops opening after an update/install, the bar is usually still
+using the previous version — force rediscovery and restart:
+
+```bash
+omarchy-shell shell rescanPlugins
+omarchy-restart-shell
+```
+
+> Avoid installing "over" an existing plugin with `plugin add`. If it already
+> exists, remove it first (below) and then add it again, or use
+> `plugin update`.
+
+### Removing (uninstall)
+
+```bash
+omarchy plugin remove ghpo.quicknote --yes
+omarchy-restart-shell
+```
+
+Your notes in `~/Documents/QuickNotes` are **not** deleted by uninstalling the
+plugin — they stay on disk (and on the git remote, if you synced). To fully
+disable without removing, use `omarchy plugin disable ghpo.quicknote`.
+
+
 ## Configuration
 
 Per-widget settings in `shell.json` (the widget's layout entry):
