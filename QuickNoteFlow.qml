@@ -95,9 +95,6 @@ Item {
   property bool previewOn: true
   // True during the idle gap before auto-render: drives the neon comet.
   property bool idleWait: false
-  // First-run encryption question.
-  property bool onboardOpen: false
-  property bool onboardChecked: false
   // Local changes not yet pushed to the remote (git sync pending).
   property bool unsynced: false
   property string lastSync: ""
@@ -500,7 +497,6 @@ Item {
     }
     root.cryptoEnabled = !!payload.encryption
     if (payload.gitRemote) root.gitRemote = String(payload.gitRemote).slice(0, 512)
-    root.checkOnboarding()
 
     root.opened = true
     root.previewOn = false
@@ -755,71 +751,6 @@ Item {
   function formatBullet() { root.editorLinePrefix("- ") }
   function formatNumbered() { root.editorLinePrefix("1. ") }
   function formatQuote() { root.editorLinePrefix("> ") }
-
-  function sshHelpText() {
-    return "Setting up the SSH key for GitHub:\n\n"
-      + "1.  Generate a key on this machine (skip if you already have one):\n"
-      + "    ssh-keygen -t ed25519 -C \"you@example.com\"\n"
-      + "    Press Enter for the default location and no passphrase.\n\n"
-      + "2.  Make sure the agent has it:\n    ssh-add ~/.ssh/id_ed25519\n\n"
-      + "3.  Copy the PUBLIC key (ends in .pub) — the button above does it.\n\n"
-      + "4.  On github.com: Settings → SSH and GPG keys → New SSH key →\n"
-      + "    paste the key → Add SSH key.\n\n"
-      + "5.  Test the connection:\n    ssh -T git@github.com\n"
-      + "    You should see: \"Hi ghpo! You've successfully authenticated.\"\n\n"
-      + "6.  The remote must use the SSH form git@github.com:user/repo.git\n"
-      + "    (not the https:// form) for the agent key to be used."
-  }
-
-  function copySshHelp() {
-    if (!root.sshHelpText()) return
-    root.cryptoSend({ op: "copy", content: root.sshHelpText() })
-  }
-
-  function enableQuickOpenShortcut() {
-    Quickshell.execDetached([root.sourceDir + "/quicknote-ensure-shortcut.sh"])
-    Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-      "Shortcut enabled", "Ctrl+Alt+Enter will now open Crypto Notes"])
-  }
-
-  function writeOnboardMarker() {
-    Quickshell.execDetached(["bash", "-c", 'mkdir -p "$1"; : > "$2"',
-      "x", root.qnStateDir, root.qnStateDir + "/crypto-onboarded"])
-  }
-
-  function checkOnboarding() {
-    if (root.cryptoEnabled || root.onboardChecked) return
-    root.onboardChecked = true
-    markProc.command = ["test", "-f", root.qnStateDir + "/crypto-onboarded"]
-    markProc.running = true
-  }
-
-  function onMarkChecked(exitCode) {
-    // 1 = marker absent -> first run without encryption.
-    if (exitCode === 1 && !root.cryptoEnabled) root.onboardOpen = true
-  }
-
-  function enableEncryptionNow() {
-    var saved = false
-    try {
-      if (root.shell && typeof root.shell.updateEntryInline === "function") {
-        var id = (root.manifest && root.manifest.id) || "ghpo.quicknote"
-        var next = { encryption: true }
-        if (root.gitRemote) next.gitRemote = root.gitRemote
-        saved = root.shell.updateEntryInline(id, next) === true
-      }
-    } catch (e) { saved = false }
-    root.onboardOpen = false
-    root.writeOnboardMarker()
-    Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
-      saved ? "Encryption enabled" : "Encryption requested",
-      saved ? "Run omarchy-restart-shell to apply it." : "Add \"encryption\": true to shell.json, then omarchy-restart-shell."])
-  }
-
-  function skipOnboarding() {
-    root.onboardOpen = false
-    root.writeOnboardMarker()
-  }
 
   function reloadNotes() {
     root.cryptoSend({ op: "list", limit: root.listLimit }, function(res) {
@@ -1175,12 +1106,6 @@ Item {
     Component.onDestruction: {
       importPickProc.running = false
     }
-  }
-
-  Process {
-    id: markProc
-    command: []
-    onExited: root.onMarkChecked(exitCode)
   }
 
   Timer {
@@ -2060,82 +1985,6 @@ Item {
       }
 
 
-        Item {
-          id: onboardModal
-          anchors.fill: parent
-          z: 75
-          visible: root.onboardOpen
-
-          Rectangle {
-            anchors.fill: parent
-            color: Qt.rgba(0, 0, 0, 0.55)
-            MouseArea { anchors.fill: parent; onClicked: {} }
-          }
-
-          BorderSurface {
-            anchors.centerIn: parent
-            width: Math.min(parent.width - Style.space(48), Style.space(420))
-            height: implicitHeight
-            color: root.background
-            borderSpec: Border.flat(root.neonColor, Style.normalBorderWidth)
-            radius: root.cornerRadius
-            padding: Style.space(16)
-
-            ColumnLayout {
-              anchors.fill: parent
-              anchors.topMargin: parent.contentTopInset
-              anchors.rightMargin: parent.contentRightInset
-              anchors.bottomMargin: parent.contentBottomInset
-              anchors.leftMargin: parent.contentLeftInset
-              spacing: Style.spacing.sm
-
-              Text {
-                Layout.fillWidth: true
-                text: "Enable encryption?"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.heading
-                font.bold: true
-              }
-
-              Text {
-                Layout.fillWidth: true
-                text: "Notes can be encrypted before they touch disk (XChaCha20-Poly1305 + Argon2id). You set a password on first unlock and the key stays only in memory."
-                color: Qt.darker(root.foreground, 1.3)
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-                wrapMode: Text.WordWrap
-              }
-
-              Text {
-                Layout.fillWidth: true
-                text: "To enable later, add \"encryption\": true to the ghpo.quicknote entry in ~/.config/omarchy/shell.json and run omarchy-restart-shell."
-                color: Qt.darker(root.foreground, 1.7)
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-              }
-
-              RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: Style.spacing.sm
-                Item { Layout.fillWidth: true }
-                Button {
-                  text: "Not now"
-                  fontFamily: root.fontFamily
-                  onClicked: root.skipOnboarding()
-                }
-                Button {
-                  text: "Enable encryption"
-                  fontFamily: root.fontFamily
-                  active: true
-                  onClicked: root.enableEncryptionNow()
-                }
-              }
-            }
-          }
-        }
-
         ConfirmDialog {
           id: deleteConfirm
           anchors.fill: parent
@@ -2249,12 +2098,6 @@ Item {
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                   verticalAlignment: Text.AlignVCenter
-                }
-                Button {
-                  text: "Enable shortcut"
-                  fontFamily: root.fontFamily
-                  tooltipText: "Adds Ctrl+Alt+Enter (system-wide) to open Crypto Notes on this machine"
-                  onClicked: root.enableQuickOpenShortcut()
                 }
                 Button {
                   text: "Close"
@@ -2519,7 +2362,7 @@ Item {
 
           BorderSurface {
             id: syncCard
-            width: Math.min(parent.width - Style.space(48), Style.space(680))
+            width: Math.min(parent.width - Style.space(48), Style.space(600))
             height: syncCard.contentTopInset + syncCard.contentBottomInset + syncCol.implicitHeight + Style.space(24)
             anchors.centerIn: parent
             color: root.background
@@ -2637,12 +2480,6 @@ Item {
                   tooltipText: "How to generate and register an SSH key"
                   onClicked: root.syncSshOpen = !root.syncSshOpen
                 }
-                Button {
-                  text: "Copy SSH help"
-                  fontFamily: root.fontFamily
-                  tooltipText: "Copy the full SSH setup guide to the clipboard"
-                  onClicked: root.copySshHelp()
-                }
                 Item { Layout.fillWidth: true }
                 Button {
                   text: "Save remote"
@@ -2689,7 +2526,18 @@ Item {
                     font.pixelSize: Style.font.caption
                     wrapMode: Text.WordWrap
                     textFormat: Text.PlainText
-                    text: root.sshHelpText()
+                    text: "Setting up the SSH key for GitHub:\n\n"
+                      + "1.  Generate a key on this machine (skip if you already have one):\n"
+                      + "    ssh-keygen -t ed25519 -C \"you@example.com\"\n"
+                      + "    Press Enter for the default location and no passphrase.\n\n"
+                      + "2.  Make sure the agent has it:\n    ssh-add ~/.ssh/id_ed25519\n\n"
+                      + "3.  Copy the PUBLIC key (ends in .pub) — the button above does it.\n\n"
+                      + "4.  On github.com: Settings → SSH and GPG keys → New SSH key →\n"
+                      + "    paste the key → Add SSH key.\n\n"
+                      + "5.  Test the connection:\n    ssh -T git@github.com\n"
+                      + "    You should see: \"Hi ghpo! You've successfully authenticated.\"\n\n"
+                      + "6.  The remote must use the SSH form git@github.com:user/repo.git\n"
+                      + "    (not the https:// form) for the agent key to be used."
                   }
                 }
               }
