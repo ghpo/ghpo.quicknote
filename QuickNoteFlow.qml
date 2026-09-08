@@ -2138,7 +2138,7 @@ Item {
 
           BorderSurface {
             id: helpCard
-            width: Math.min(parent.width - Style.space(48), Style.space(440))
+            width: Math.min(parent.width - Style.space(48), Style.space(600))
             height: Math.min(parent.height - Style.space(40), Style.space(460))
             anchors.centerIn: parent
             color: root.background
