@@ -2558,6 +2558,7 @@ Item {
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
                 font.bold: true
+              }
 
               Text {
                 Layout.fillWidth: true
@@ -2566,7 +2567,6 @@ Item {
                 color: Qt.darker(root.foreground, 1.6)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
-              }
               }
 
               // Live log panel.
