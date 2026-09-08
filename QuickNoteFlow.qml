@@ -146,8 +146,8 @@ Item {
   readonly property int listPaneW: root.listCompact
     ? Math.max(Style.space(200), Math.min(Style.space(300), Math.max(0, card.width) * 0.26))
     : Math.max(Style.space(300), Math.min(Style.space(440), Math.max(0, card.width) * 0.42))
-  readonly property int noteRowCompact: Style.space(46)
-  readonly property int noteRowHeight: Math.max(Style.space(52), Style.font.body + Style.font.caption + Style.spacing.xxl)
+  readonly property int noteRowCompact: Style.space(58)
+  readonly property int noteRowHeight: Math.max(Style.space(76), Style.font.body * 2 + Style.font.caption + Style.spacing.xxl)
   readonly property int textBoxRadius: Math.max(14, Style.cornerRadius)
   // Dialog can be maximized (fill the screen) or centered at its default size.
   property bool maximized: false
@@ -1096,6 +1096,23 @@ Item {
     return tags && tags.length ? tags.length : 0
   }
 
+  // Show a friendly note title: strip markdown syntax but keep the text.
+  function cleanTitle(raw) {
+    var s = String(raw || "").replace(/\r/g, "")
+    s = s.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    s = s.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    s = s.replace(/`([^`]*)`/g, "$1")
+    s = s.replace(/(\*\*|__|~~)/g, "")
+    var out = []
+    var lines = s.split("\n")
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i].replace(/^\s*(#{1,6}\s+|[>\-+*\u2022]\s+|\d+[.)]\s*)/, "")
+      ln = ln.trim()
+      if (ln) out.push(ln)
+    }
+    return out.join("  \u00b7  ").trim()
+  }
+
   function saveAndClose() {
     var text = root.note
     if (!text.trim()) {
@@ -1539,12 +1556,13 @@ Item {
                     ? Math.max(3, (root.noteRowCompact - Math.round(Style.font.body * 1.6)) / 2)
                     : Style.spacing.sm
                   textFormat: Text.PlainText
-                  text: row.title || "Untitled"
+                  text: root.cleanTitle(row.title) || "Untitled"
                   color: hasCursor ? root.selectedText : root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: root.listCompact ? Style.font.body : Style.font.title
                   elide: Text.ElideRight
-                  wrapMode: Text.NoWrap
+                  wrapMode: Text.Wrap
+                  maximumLineCount: 2
                 }
 
                 // Row activation — covers the whole row, but the bottom band
