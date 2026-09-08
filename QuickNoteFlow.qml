@@ -1781,7 +1781,6 @@ Item {
                 Item { Layout.fillWidth: true }
                 Button { text: "B"; fontFamily: root.fontFamily; tooltipText: "Bold (markdown **bold**)"; onClicked: root.formatBold() }
                 Button { text: "I"; fontFamily: root.fontFamily; tooltipText: "Italic (markdown *italic*)"; onClicked: root.formatItalic() }
-                Button { text: "</>"; fontFamily: root.fontFamily; tooltipText: "Inline code (`code`)"; onClicked: root.formatInlineCode() }
                 Button { text: "{ }"; fontFamily: root.fontFamily; tooltipText: "Code block (``` ```)"; onClicked: root.formatCodeBlock() }
                 Button { text: "H"; fontFamily: root.fontFamily; tooltipText: "Heading (## at line start)"; onClicked: root.formatHeading() }
                 Button { text: "•"; fontFamily: root.fontFamily; tooltipText: "Bullet list (- )"; onClicked: root.formatBullet() }
