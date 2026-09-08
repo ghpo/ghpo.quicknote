@@ -1458,9 +1458,10 @@ Item {
 
               Text {
                 text: String(notesModel.count)
-                color: Qt.darker(root.foreground, 1.6)
+                color: "#9ecbff"
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
+                font.bold: true
               }
             }
 
@@ -1717,11 +1718,13 @@ Item {
               TextField {
                 id: searchField
                 Layout.fillWidth: true
+                Layout.leftMargin: Style.spacing.xs
                 placeholderText: "Search notes…"
                 font.family: root.fontFamily
                 foreground: root.foreground
                 accent: Color.accent
                 selectionTint: Style.selectionFillFor(root.foreground, Color.accent)
+                horizontalPadding: Style.spacing.controlPaddingX + 6
 
                 onTextEdited: {
                   if (!root.opened) return
