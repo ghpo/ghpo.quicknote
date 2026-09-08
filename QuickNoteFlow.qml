@@ -820,6 +820,24 @@ Item {
     root.writeOnboardMarker()
   }
 
+  function toggleEncryption() {
+    var target = !root.cryptoEnabled
+    var saved = false
+    try {
+      if (root.shell && typeof root.shell.updateEntryInline === "function") {
+        var id = (root.manifest && root.manifest.id) || "ghpo.quicknote"
+        var next = { encryption: target }
+        if (root.gitRemote) next.gitRemote = root.gitRemote
+        saved = root.shell.updateEntryInline(id, next) === true
+      }
+    } catch (e) { saved = false }
+    root.writeOnboardMarker()
+    Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send",
+      saved ? (target ? "Encryption enabled" : "Encryption disabled")
+            : (target ? "Encryption requested" : "Disable requested"),
+      "Run omarchy-restart-shell to apply."])
+  }
+
   function reloadNotes() {
     root.cryptoSend({ op: "list", limit: root.listLimit }, function(res) {
       if (res.ok && res.notes) root.applyNotes(res.notes)
@@ -2200,6 +2218,14 @@ Item {
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                   verticalAlignment: Text.AlignVCenter
+                }
+                Button {
+                  text: root.cryptoEnabled ? "Disable encryption" : "Enable encryption"
+                  fontFamily: root.fontFamily
+                  tooltipText: root.cryptoEnabled
+                    ? "Save notes as plain text (takes effect after a shell restart)"
+                    : "Encrypt notes at rest (takes effect after a shell restart)"
+                  onClicked: root.toggleEncryption()
                 }
                 Button {
                   text: "Enable shortcut"
